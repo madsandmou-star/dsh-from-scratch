@@ -4,22 +4,41 @@
 
 ## 验收清单
 
+三条失败路径先跑，因为"报错够不够用"和"功能能不能用"同样重要：
+
 ```sh
-# 1. 配置齐了
-cp dsh-learn.example.json dsh-learn.json
-export DEEPSEEK_API_KEY=sk-...
-
-# 2. 缺配置时能立刻说清楚缺什么（把配置文件改名再跑一次）
+# ① 没有配置文件
 node --import tsx src/index.ts
-# 期望：一条带着"下一步该敲什么"的报错，而不是一个 401
+# Error: 找不到配置文件 .../dsh-learn.json
+# 先复制模板：cp dsh-learn.example.json dsh-learn.json
 
-# 3. 多轮对话跑通
+# ② 有配置但没设环境变量
+cp dsh-learn.example.json dsh-learn.json
+node --import tsx src/index.ts
+# Error: 环境变量 DEEPSEEK_API_KEY 没有设置。
+# 先导出密钥：export DEEPSEEK_API_KEY=sk-...
+
+# ③ 密钥是空字符串——最阴的一种，不判空的话会带着空 Bearer 发出去换回一个 401
+DEEPSEEK_API_KEY= node --import tsx src/index.ts
+# Error: 环境变量 DEEPSEEK_API_KEY 没有设置。
+
+# ④ 多轮对话：模型"记得"你叫什么
+export DEEPSEEK_API_KEY=sk-...
 node --import tsx src/index.ts
 # 你 > 我叫小明
 # 模型 > ……
 # 你 > 我叫什么？
-# 模型 > 你叫小明        ← 证明历史确实被重发了
+# 模型 > 你叫小明          ← 证明历史确实被整个重发了
+
+# ⑤ 管道输入也要能用（Ctrl-D 走的是同一条路径）
+printf '你好\n' | node --import tsx src/index.ts
+
+# ⑥ 类型检查与讲义自检
+npm run typecheck
+npm run check
 ```
+
+> **没有 API key 也能验收 ①②③⑤⑥。** ④ 可以用 [1.2](../02-messages-curl/01-messages-curl.md) 那个十几行的假服务器代替——把 `baseURL` 指过去即可。验收的是我们的代码，不是供应商。
 
 | 验收项 | |
 |---|---|
@@ -29,7 +48,9 @@ node --import tsx src/index.ts
 | 知道 `fetch` 不为 4xx 抛错，必须自己查 `response.ok` | ✓ |
 | 知道 `content` 可能是 `null`，以及那意味着什么 | ✓ |
 | 多轮对话跑通，理解"记忆"是客户端造的 | ✓ |
-| 知道请求失败后要撤回那条 user 消息 | ✓ |
+| 知道请求失败后要撤回那条 user 消息，以及为什么它只是补丁 | ✓ |
+| 输入用 `for await` 迭代，管道与 Ctrl-D 都不崩 | ✓ |
+| 会用假服务器看清"实际发出去的是什么" | ✓ |
 
 ## 本阶段产出
 
