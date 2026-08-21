@@ -1,0 +1,5 @@
+node_modules/
+dsh-learn.json
+.env
+*.tsbuildinfo
+.DS_Store

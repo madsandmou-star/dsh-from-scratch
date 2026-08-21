@@ -1,0 +1,4 @@
+[submodule "dsh"]
+	path = dsh
+	url = https://github.com/deepseek-ai/deepseek-harness.git
+	shallow = true

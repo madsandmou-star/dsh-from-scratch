@@ -1,0 +1,17 @@
+{
+  "name": "dsh-from-scratch",
+  "private": true,
+  "type": "module",
+  "description": "从零开始造一个 agent harness，直到能看懂 DeepSeek Harness 的每一个设计决策",
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "scripts": {
+    "hello": "node --import tsx src/hello.ts",
+    "dev": "node --import tsx src/index.ts",
+    "check": "node scripts/check-course.mjs"
+  },
+  "devDependencies": {
+    "tsx": "^4.22.4"
+  }
+}
