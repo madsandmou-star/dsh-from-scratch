@@ -14,11 +14,26 @@
 
 多出来的这一层是 TypeScript 造成的：Node 只认 JavaScript，而我们写的是 TypeScript。
 
-## 为什么 `.ts` 不能直接跑
+## `.ts` 能不能直接跑：能，但只能跑一半
 
-TypeScript 的类型标注（`const x: number = 1` 里的 `: number`）不是 JavaScript 语法，Node 默认读不懂。传统做法是先编译：`tsc` 把 `.ts` 转成 `.js`，再 `node xxx.js`。dsh 的正式构建就是这么做的（`pnpm run build` 用 tsc 出类型、tsdown 出运行时产物）。
+TypeScript 的类型标注（`const x: number = 1` 里的 `: number`）不是 JavaScript 语法。传统做法是先编译：`tsc` 把 `.ts` 转成 `.js`，再 `node xxx.js`。dsh 的正式构建就是这么做的（`pnpm run build` 用 tsc 出类型、tsdown 出运行时产物）。
 
-但开发时每改一行都编译一次太慢，所以有了 tsx：它挂在 Node 的模块加载钩子上，**加载的瞬间**把 TypeScript 剥成 JavaScript，然后交给 Node 执行。注意它只是把类型标注删掉，**不做类型检查**——类型检查是另一件事（课程里跑 `npx tsc --noEmit`，dsh 里跑 `pnpm run typecheck`）。
+但 Node 22.18 之后内置了**类型剥离**（strip types），直接 `node src/hello.ts` 就能跑：它把类型标注当注释删掉，剩下的就是合法 JavaScript。
+
+关键在"删"这个字——**剥离只会删，不会生成**。遇到需要生成运行时代码的 TypeScript 语法（`enum`、`namespace`、装饰器、构造函数参数属性 `constructor(private ctx: Context)`），它只能报错：
+
+```sh
+node -e 'require("fs").writeFileSync("/tmp/e.ts","enum Color { Red }\nconsole.log(Color.Red)\n")'
+node /tmp/e.ts
+# SyntaxError [ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX]: TypeScript enum is not supported in strip-only mode
+
+node --import tsx /tmp/e.ts
+# 0
+```
+
+tsx 是完整的转换器（底层是 esbuild），该生成的代码它会生成，所以同一个文件它跑得动。这不是学术差别：dsh 本体正是因为这个被迫回到 tsx——细节见下面的对照。
+
+**但两者都不做类型检查。** 类型检查是完全独立的一步（课程里跑 `npx tsc --noEmit`，dsh 里跑 `pnpm run typecheck`）。
 
 > 这条区别以后会咬你一口：代码跑得好好的，CI 却报类型错误。因为跑起来那一步根本没检查类型。
 
@@ -73,6 +88,14 @@ packages:
 
 顺带记住一件事：`dsh/` 里的东西**永远不要改**。它是对照物，不是工作区。
 
+## 对照 dsh：它为什么不用 Node 原生的剥离
+
+dsh 曾经用 Node 原生的 `--experimental-transform-types` 从源码启动 `dsh` 命令。Node 26 删掉了这个 flag，只留下 strip 模式——而 strip 模式拒绝 dsh 源码里必需的语法：vendored Cordis 的参数属性、`vendor/hmr` 的 `@Inject` 装饰器、`vendor/` 与 `packages/workflow` 里的 enum 和 namespace。dsh 的 engines 范围覆盖 Node 26，所以那条启动链在那里根本起不来。
+
+于是它改回 `node --import tsx/esm`，并补了一条 CI 冒烟测试专门跑这个启动向量——**因为当初没有任何测试跑真实启动路径，这个不兼容是静悄悄上线的**。完整决策记录见 `dsh/.agents/notes/implemented/architecture/2026-07-29-dsh-source-launch-tsx-esm.md`。
+
+你刚才看到的那条 `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`，就是把 dsh 逼回 tsx 的那个错误。
+
 ## 为什么这门课把这层讲在最前面
 
 因为它是后面所有"跑不起来"的第一嫌疑人。三类最常见的开局故障：
@@ -80,7 +103,7 @@ packages:
 | 现象 | 根因 | 怎么确认 |
 |---|---|---|
 | `Cannot find package 'tsx'` | 没装依赖 | `ls node_modules \| head`，空的就 `npm install` |
-| `Unknown file extension ".ts"` | 忘了 `--import tsx` | 看你敲的命令 |
+| `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX` | 用了剥离模式跑不了的语法 | 加上 `--import tsx` 再跑 |
 | `Cannot find module './config'` | 相对导入漏了 `.ts` 后缀 | 见 [0.2](../02-typescript-esm/01-typescript-esm.md) 的 ESM 小节 |
 
 ---
