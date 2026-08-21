@@ -9,7 +9,7 @@
 |---|---|
 | 📌 参考版本 | deepseek-harness `dsh-v0.1.0-rc.8`（commit `141eb6fef`，钉在 `dsh/` submodule，只读） |
 | 📂 参考源码 | `dsh/packages/`、`dsh/docs/`、`dsh/examples/` |
-| 🎯 终点 | 能读懂 dsh 任意一个包，并给 dsh 写出一个真正跑得起来的插件 |
+| 🎯 终点 | **骨架 1:1 复刻**（31 个包、约 6.2 万行）+ 外围逐个读懂；最后给 dsh 提一个真插件 |
 | 👤 适合人群 | 想搞懂 AI coding agent 内部原理、准备给 dsh 提 PR 的开发者 |
 | 🗣️ 语言 | 讲义中文，技术术语保留英文（Cordis、waterfall、capability seam、session log） |
 
@@ -36,6 +36,18 @@ dsh 有 200 多个包（分在 50 个包组里）。打开 `dsh/packages/core/ag
 - **dsh 的设计决策**：为什么"一切皆插件"、为什么 session 是事件日志、为什么能力要拆成三个角色、为什么改 loop 要先改文档
 - **用 AI 给自己定制讲义**：这门课本身就是 AI agent 协助生成的；讲义看不懂就换个说法、换个类比，一遍遍打磨到你真的懂为止
 - **给 dsh 提 PR 的底气**：终点不是"我造了个玩具"，而是"我知道这个功能该挂在哪个扩展点上"
+
+## 终点：复刻到哪一步
+
+**骨架 1:1，外围只读。** 这不是"简化版"的托词——骨架部分的终态是**逐行与 dsh 源码一致**，包括它的错误分类、边界处理、事件语义和测试。
+
+| | 范围 | 规模 | 要求 |
+|---|---|---|---|
+| **骨架** | `core/`（session、tools、agent、agent-loop、system-prompt、scope）、`llm/` 三件套、`session/` 持久化与投影、fs / shell / subprocess 三条 seam、interaction 权限、compaction、subagent、skill、plan、todo、guard、context、credentials、settings、boot、bundle、util | **31 个包 / 62,400 行** | 逐行复刻到与源码一致 |
+| **框架** | `vendor/cordis` | 6,493 行 | 先自己写迷你版跑通，再对照读全量，不逐行抄 |
+| **外围** | `client/` Web GUI（45,536 行）、`host/` + `api/` + `typert`（21,222 行）、website、Python SDK、native/landlock、e2b、lsp、terminal PTY、sandbox 后端、hooks 桥、session-query、spill、attachment、storage、仓库门禁与生成器 | 约 14 万行 | 带你读懂设计与取舍，不重写 |
+
+参照系：骨架的 31 个包，正好和 opencode 整个项目的包数一样多——**这门课的"骨架"体量等于 OpenCode From Scratch 的全部目标**。外围之所以只读，不是因为它不重要，而是因为重写 4.5 万行 Web 前端学不到 agent 架构，读它的分层却能。
 
 ## 学习路线
 

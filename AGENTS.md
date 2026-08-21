@@ -6,6 +6,8 @@
 
 `dsh/` 是钉在固定 commit 上的 git submodule，指向 [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)。它的作用是让讲义里的每一处"对照真实源码"都能被打开、被 grep、被跑起来，而且**不会因为上游改动而变成谎言**。
 
+**终点是骨架 1:1。** 每个阶段的简化版都是过渡形态，不是终态：讲义在给出简化版之后，必须说清它与 `dsh/` 对应实现的差距，以及哪个阶段补齐。骨架范围见 [README.md](README.md#终点复刻到哪一步)；外围包只带读、不重写，讲义讲它的分层与取舍即可。
+
 四条硬边界：
 
 1. **`dsh/` 只读。** 永远不要在里面改任何东西，也不要提交 submodule 内的改动。发现 dsh 本身的 bug，去 dsh 仓库单独提。
