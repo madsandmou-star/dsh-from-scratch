@@ -86,6 +86,8 @@ dsh 有 200 多个包（分在 50 个包组里）。打开 `dsh/packages/core/ag
 
 完整大纲与当前进度见 **[COURSE.md](COURSE.md)**（活文档，进入每阶段前才细化）。
 
+想先知道 dsh 和 opencode 差在哪、各自押注了什么，看附录：**[opencode 与 dsh 的体量与架构对比](docs/appendix/opencode-vs-dsh.md)**。
+
 ## 快速开始
 
 前置：Node `^22.19 || >=24`（`node -v` 确认）。
