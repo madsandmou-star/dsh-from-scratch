@@ -80,12 +80,30 @@ const CONFIG_URL = new URL('../dsh-learn.json', import.meta.url)
 
 这正是 [`src/config.ts`](../../../src/config.ts) 的写法。注意它和 `readFileSync('dsh-learn.json')` 的区别：后者相对于**你敲命令时所在的目录**，换个目录就找不到了；前者相对于**代码文件自己**，永远正确。
 
-## `strict: true` 严在哪
+## `strict` 严在哪，以及它**不**管什么
 
-dsh 全仓库开 `strict`，最常撞见的两条：
+`strict: true` 是一组开关的合集，最常撞见的两条：
 
 - **`noImplicitAny`**：参数不写类型、编译器又推不出来，就报错。逼你在函数签名上把契约写清楚。
-- **严格空值检查**：`string | undefined` 不能当 `string` 用。`completion.choices[0]?.message.content` 里的 `?.` 就是为此存在——数组下标可能取空，编译器不允许你假装它一定有。
+- **`strictNullChecks`**：`string | undefined` 不能当 `string` 用。
+
+但有一条它**管不着**，值得单独记住：**`strict` 不检查数组下标越界。**
+
+```ts
+const first = completion.choices[0]        // strict 认为它一定是 Choice，不是 Choice | undefined
+```
+
+数组可能是空的，`choices[0]` 完全可能是 `undefined`，而 `strict` 默认假装它一定有。管这件事的是另一个开关 **`noUncheckedIndexedAccess`**，dsh 在 `dsh/tsconfig.base.json` 里开着它（连同 `exactOptionalPropertyTypes`），本课程的 `tsconfig.json` 跟着开。
+
+开了之后才有下面这个效果：
+
+```sh
+# 把 llm.ts 里的 choices[0]?.message 改成 choices[0].message
+npm run typecheck
+# src/llm.ts(45,19): error TS2532: Object is possibly 'undefined'.
+```
+
+这就是 `completion.choices[0]?.message.content` 里那个 `?.` 存在的真正原因——不是 `strict`，是 `noUncheckedIndexedAccess`。
 
 这类"编译器很烦"的时刻，通常是它在提醒你有一条真实存在的路径没想过。阶段 1.3 里"模型可以合法地返回 `null` content"就是这么被逼出来的一个考虑。
 

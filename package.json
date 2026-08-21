@@ -9,9 +9,12 @@
   "scripts": {
     "hello": "node --import tsx src/hello.ts",
     "dev": "node --import tsx src/index.ts",
-    "check": "node scripts/check-course.mjs"
+    "check": "node scripts/check-course.mjs",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "tsx": "^4.22.4"
+    "@types/node": "^26.2.0",
+    "tsx": "^4.22.4",
+    "typescript": "^7.0.2"
   }
 }
