@@ -7,7 +7,7 @@
 
 | | |
 |---|---|
-| 📌 参考版本 | deepseek-harness `141eb6fef`（`dsh/` submodule，只读） |
+| 📌 参考版本 | deepseek-harness `dsh-v0.1.0-rc.8`（commit `141eb6fef`，钉在 `dsh/` submodule，只读） |
 | 📂 参考源码 | `dsh/packages/`、`dsh/docs/`、`dsh/examples/` |
 | 🎯 终点 | 能读懂 dsh 任意一个包，并给 dsh 写出一个真正跑得起来的插件 |
 | 👤 适合人群 | 想搞懂 AI coding agent 内部原理、准备给 dsh 提 PR 的开发者 |
