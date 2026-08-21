@@ -26,24 +26,32 @@ const messages: Message[] = [
 ]
 
 const rl = createInterface({ input: process.stdin, output: process.stdout })
+process.stdout.write('\n你 > ')
 
-while (true) {
-  const input = (await rl.question('\n你 > ')).trim()
-  if (input === '') continue
+for await (const line of rl) {
+  const input = line.trim()
   if (input === '/exit') break
+  if (input === '') { process.stdout.write('\n你 > '); continue }
 
   messages.push({ role: 'user', content: input })
   const reply = await chat(messages, config)
   messages.push({ role: 'assistant', content: reply })
   console.log(`\n模型 > ${reply}`)
+  process.stdout.write('\n你 > ')
 }
 ```
 
 （上面省掉了错误处理，完整版见源文件。）
 
-`node:readline/promises` 是 readline 的 Promise 版本，`rl.question()` 直接可以 `await`。老代码里的 `rl.question(prompt, callback)` 是同一件事的回调写法。
-
 顶层 `await` 在 ESM 里是合法的，所以不需要包一个 `main()` 再调用——这也是为什么 [0.2](../../00-env-basics/02-typescript-esm/01-typescript-esm.md) 要先讲模块系统。
+
+### 为什么是 `for await`，不是反复 `rl.question()`
+
+`node:readline/promises` 提供了 `rl.question()`，返回 Promise，看起来更直白。但它有个致命限制：**stdin 一结束，readline 就关闭了，此后每次 `question()` 都抛 `ERR_USE_AFTER_CLOSE`**——哪怕缓冲区里还有没读完的行。
+
+后果是这个 CLI 只能在交互式终端里活着。一旦你想用管道喂输入（自动化测试、录制演示、`echo "你好" | npm run dev`），第二轮就崩。用户按 Ctrl-D 也是同样的崩法。
+
+`for await (const line of rl)` 把输入当成**一个行的流**来迭代，交互式终端和管道输入都成立，流结束就是循环结束——Ctrl-D 自然变成了"退出"。
 
 ## 一个真实的坑：失败后要把消息撤回
 

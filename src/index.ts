@@ -20,15 +20,18 @@ const messages: Message[] = [
   { role: 'system', content: config.systemPrompt },
 ]
 
-// readline/promises 版本的接口，read() 返回 Promise，可以直接 await，
-// 不用写回调（Node 老代码里的 rl.question(prompt, callback) 是同一件事的旧写法）。
+// readline 接口。用 `for await (const line of rl)` 迭代输入行，而不是反复调 rl.question()：
+// question() 在 stdin 结束后就不能再用了（会抛 ERR_USE_AFTER_CLOSE），
+// 而迭代写法对交互式终端和管道输入（`echo "你好" | npm run dev`）都成立。
 const rl = createInterface({ input: process.stdin, output: process.stdout })
 
+process.stdout.write('\n你 > ')
+
 // 顶层 await：ESM 模块可以直接在模块顶层写 await，不需要包一个 main() 再调用。
-while (true) {
-  const input = (await rl.question('\n你 > ')).trim()
-  if (input === '') continue
+for await (const line of rl) {
+  const input = line.trim()
   if (input === '/exit') break
+  if (input === '') { process.stdout.write('\n你 > '); continue }
 
   messages.push({ role: 'user', content: input })
 
@@ -42,11 +45,13 @@ while (true) {
     // 不撤回的话，历史里会留下一条没有对应回复的悬空消息，下一次请求会带着它一起发出去。
     console.error(`\n[请求失败] ${error instanceof Error ? error.message : String(error)}`)
     messages.pop()
+    process.stdout.write('\n你 > ')
     continue
   }
 
   messages.push({ role: 'assistant', content: reply })
   console.log(`\n模型 > ${reply}`)
+  process.stdout.write('\n你 > ')
 }
 
 rl.close()
