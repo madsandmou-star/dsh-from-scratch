@@ -95,11 +95,42 @@ DshFromScratch/
 
 ### 阶段 2：流式输出
 
-> **目标**：把"等全部生成完再打印"改成"逐字打印"，理解 SSE 与增量拼装。
+> **目标**：把"等全部生成完再打印"改成"逐字打印"，理解 SSE 分帧与增量拼装，并看清流式给整个系统带来的连锁复杂度。
 >
-> **产出**：回复像打字机一样逐字出现。
->
-> **对照**：`dsh/packages/llm/llm-deepseek/src/sse.ts`（为什么 `[DONE]` 缺失要当成错误）、`assistant/chunk` 事件为什么必须落盘。
+> **产出**：回复像打字机一样逐字出现；`chat()` 的返回从"一个字符串"变成"一串增量"。
+
+#### 课程
+
+- **2.1 [流式是什么：SSE 分帧](docs/02-streaming/01-what-is-sse/01-what-is-sse.md)**
+  - 非流式 vs 流式：同一个请求，加一个 `stream: true` 之后响应变成什么样
+  - SSE 的线格式：`data: {JSON}\n\n`，为什么是**两个**换行
+  - `delta` 与 `message` 的区别：流式给的是增量，不是快照
+  - 结束标记 `[DONE]`，以及"流没有 `[DONE]` 就断了"意味着什么
+  - 教 debug：`curl --no-buffer` 看逐块到达；管道缓冲为什么会骗你
+
+- **2.2 用 fetch 读流：ReadableStream 与分帧**（未写）
+  - `response.body` 是字节流，不是文本流：`for await (const chunk of response.body)`
+  - **网络分块与协议分帧不是一回事**：一个 chunk 可能切在 JSON 中间，也可能一次带来三条事件
+  - 手写一个最小的分帧器：缓冲 + 按 `\n\n` 切分 + 处理残留
+  - UTF-8 多字节字符被切开时会怎样，`TextDecoder({ stream: true })` 解决什么
+  - 教 debug：把每个原始 chunk 打出来看边界
+
+- **2.3 接进对话循环**（未写）
+  - `chat()` 改成 `chatStream()`：调用方拿到的是回调（或异步迭代器）而不是字符串
+  - 逐字打印：`process.stdout.write` 不换行
+  - 收集完整文本加回历史——流式之后"完整回复"要自己攒
+  - 中途断流怎么办：已经打印出去的半句要不要进历史（第一次遇到"半成品状态"的流式版本）
+
+- **2.4 阶段验收**（未写）
+  - 验收清单 + 工程思维总结：为什么 dsh 把流式当默认而不是选项
+  - 对照 dsh：`sse.ts` 为什么把"缺 `[DONE]`"当成 `STREAM_CLOSED` 错误；`translate.ts` 的有状态块装配；`StreamChunk` 七种类型；`assistant/chunk` 事件为什么必须落盘
+
+#### 阶段产出
+
+```
+src/llm.ts       # 改：chat() → chatStream()，内部做 SSE 分帧
+src/index.ts     # 改：逐字打印，自己攒完整回复
+```
 
 ### 阶段 3：工具循环
 
