@@ -99,6 +99,73 @@ dsh 的 session 日志里有这么一个事件类型：
 
 这就是 dsh 那条"**模型可见 ⟺ 已记录**"规矩的一个侧面：**不仅记录模型看到了什么，也记录模型产出的过程**。
 
+## 用户看到的和落盘的，怎么保证一致
+
+流式有个绕不开的问题：**用户在 `[DONE]` 之前就看到内容了，而"完整消息"要等流结束才能组装。** 万一中途断了，用户看到的和落盘的就对不上——屏幕上有半句话，历史里什么都没有。
+
+我们的代码正是这个毛病（2.3 亲历过）。dsh 用三件事把它消解掉了。
+
+### ① 顺序是反的：先落盘，再上屏
+
+`dsh/packages/core/agent-loop/src/agent.ts` 的流循环：
+
+```ts
+for await (const chunk of stream) {
+  signal.throwIfAborted()
+  chunkSeqs.push(this.session.append('assistant/chunk', { turn, step, chunk }).seq)
+  assembler.push(chunk)
+}
+```
+
+**每个 chunk 一到，先 append 进日志拿到 `seq`，然后才交给装配器。** 而 UI 不是从模型流渲染的——它订阅 `session/event`。
+
+所以数据流是：`模型流 → 日志 → 广播 → UI`。**"用户看到了但没落盘"在物理上不可能发生**，因为日志在上游。
+
+我们的课程代码是反的：`process.stdout.write(delta)` 直接把模型流泼到屏幕，历史最后才写。不一致正是这么来的。
+
+### ② 两层不同的真相，各自完整
+
+| 层 | 事件 | 记录什么 | 谁消费 |
+|---|---|---|---|
+| **过程层** | `assistant/chunk` | token 级碎片，用户看到什么这里就有什么 | UI 渲染与重放 |
+| **事实层** | `assistant/message` | 组装好的完整消息 | `deriveMessages()` → 模型下一轮 |
+
+`surface.ts` 明确规定，只有三种事件进入"模型可见面"：`user/message`、`assistant/message`、`tool/result`。**`assistant/chunk` 不在其中。**
+
+所以"用户看到的"和"模型下一轮看到的"**本来就是两个东西**，不需要逐字相等。要求它们相等才是设计错误。
+
+### ③ provenance 把两层钉在一起
+
+```ts
+this.session.append('assistant/message', { turn, step, message, ...usage },
+  { surfaceOp: 'append', sourceEventSeqs: chunkSeqs })
+```
+
+组装出的消息**声明自己是由哪些 chunk 事件派生的**。这不是可选注释——`surface.ts` 的校验会拒绝不合规的事件：
+
+- surface-eligible 的事件**必须**带 `surfaceOp`
+- `sourceEventSeqs` 必须是密集的非负整数，且不得为空（`assistant/message` 是唯一例外）
+
+于是两层之间有一条**可机器检查的派生链**：UI 能把那批 chunk 折叠成一条消息而不产生歧义，审计时能反查"这条消息是从哪些碎片来的"。
+
+### ④ 断掉的时候，三方各自正确
+
+| 情况 | 日志里有 | 模型下一轮看到 | 用户看到 |
+|---|---|---|---|
+| **正常完成** | chunk + message | message | 全部内容 |
+| **传输截断**（缺 `[DONE]`） | 只有 chunk | **什么都没有**（surface 只认 message 层） | 半句话，带中断提示 |
+| **用户取消** | chunk + message(`interrupted: true`) | 已交付前缀 | 半句话 |
+
+截断那一行是关键：**chunk 在日志里（用户看到的有据可查），但没有 `assistant/message`，所以模型下一轮完全不知道这段残片存在。**
+
+**"一致性"不是"三者内容相同"，而是每一层都能说清自己的状态，且层与层之间有明确的派生关系。** 这是流式系统里唯一站得住的一致性定义——因为"用户已经看到"这件事不可撤销，你只能让它在正确的层里被承认。
+
+### 代价
+
+每个 chunk 一次 `append`。dsh 的 session 是内存日志 + 持久化 seam（JSONL / SQLite 后端），append 先进内存再落盘。token 级保真是花钱买来的——换回的是重放、快照测试和审计。
+
+阶段 12 你会自己搭这套两层结构，那时候再回头看这一节。
+
 ## 一处我们和 dsh 不同的选择
 
 我们决定：断流时**丢弃**半句话，不进历史。
