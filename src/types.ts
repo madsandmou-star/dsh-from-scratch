@@ -17,6 +17,17 @@ export interface Message {
 }
 
 /**
+ * 流式响应里每一帧的结构。注意是 `delta`（增量）不是 `message`（快照）。
+ * 阶段 3 加工具调用时，delta 里还会出现 `tool_calls`，那时这个类型会长大。
+ */
+export interface StreamChunk {
+  choices: Array<{
+    delta: { role?: 'assistant', content?: string }
+    finish_reason: string | null
+  }>
+}
+
+/**
  * `/chat/completions` 非流式响应里我们真正用到的部分。
  * 真实响应还有 usage、id、created 等字段，声明它们对当前这一课没有帮助，
  * 所以只写我们要读的那几个——类型是给人看的说明，不是响应的复印件。

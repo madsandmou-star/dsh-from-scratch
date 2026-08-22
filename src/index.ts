@@ -8,7 +8,7 @@
 
 import { createInterface } from 'node:readline/promises'
 import { loadConfig } from './config.ts'
-import { chat } from './llm.ts'
+import { chatStream } from './llm.ts'
 import type { Message } from './types.ts'
 
 const config = loadConfig()
@@ -37,20 +37,28 @@ for await (const line of rl) {
 
   // 这里是整个 agent 的雏形：收输入 → 组装上下文 → 调模型 → 处理结果 → 回到开头。
   // 阶段 3 会在"处理结果"这一步分叉出工具调用，那一分叉就是 agent 与聊天机器人的分界线。
-  let reply: string
+  //
+  // 流式带来的第一个变化：没有"拿到回复"这个时刻了。
+  // 打印和累积同时发生，而"完整回复"要自己攒——攒出来的东西才能进历史。
+  process.stdout.write('\n模型 > ')
+  let reply = ''
   try {
-    reply = await chat(messages, config)
+    for await (const delta of chatStream(messages, config)) {
+      process.stdout.write(delta)     // 逐字上屏，不换行
+      reply += delta                  // 同时攒完整文本
+    }
   } catch (error) {
-    // 一次请求失败不该让整个进程崩掉：打印出来，把刚才那条 user 消息撤回，继续下一轮。
-    // 不撤回的话，历史里会留下一条没有对应回复的悬空消息，下一次请求会带着它一起发出去。
-    console.error(`\n[请求失败] ${error instanceof Error ? error.message : String(error)}`)
+    // 流式带来的第二个变化：失败时屏幕上已经有半句话了，收不回来。
+    // 我们的选择是**不把半句话写进历史**：给用户一个明确的中断标记，然后撤回这一轮。
+    // 理由和 2.2 丢弃未终止残片一样——残缺内容进了历史，下一轮模型会拿它当事实。
+    console.error(`\n[本轮中断，已丢弃] ${error instanceof Error ? error.message : String(error)}`)
     messages.pop()
     process.stdout.write('\n你 > ')
     continue
   }
 
   messages.push({ role: 'assistant', content: reply })
-  console.log(`\n模型 > ${reply}`)
+  console.log()
   process.stdout.write('\n你 > ')
 }
 
