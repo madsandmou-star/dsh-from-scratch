@@ -108,20 +108,20 @@ DshFromScratch/
   - 结束标记 `[DONE]`，以及"流没有 `[DONE]` 就断了"意味着什么
   - 教 debug：`curl --no-buffer` 看逐块到达；管道缓冲为什么会骗你
 
-- **2.2 用 fetch 读流：ReadableStream 与分帧**（未写）
+- **2.2 [用 fetch 读流：ReadableStream 与分帧](docs/02-streaming/02-read-stream/01-read-stream.md)**
   - `response.body` 是字节流，不是文本流：`for await (const chunk of response.body)`
   - **网络分块与协议分帧不是一回事**：一个 chunk 可能切在 JSON 中间，也可能一次带来三条事件
   - 手写一个最小的分帧器：缓冲 + 按 `\n\n` 切分 + 处理残留
   - UTF-8 多字节字符被切开时会怎样，`TextDecoder({ stream: true })` 解决什么
   - 教 debug：把每个原始 chunk 打出来看边界
 
-- **2.3 接进对话循环**（未写）
+- **2.3 [接进对话循环](docs/02-streaming/03-integrate/01-integrate.md)**
   - `chat()` 改成 `chatStream()`：调用方拿到的是回调（或异步迭代器）而不是字符串
   - 逐字打印：`process.stdout.write` 不换行
   - 收集完整文本加回历史——流式之后"完整回复"要自己攒
   - 中途断流怎么办：已经打印出去的半句要不要进历史（第一次遇到"半成品状态"的流式版本）
 
-- **2.4 阶段验收**（未写）
+- **2.4 [阶段验收](docs/02-streaming/04-stage-review/01-stage-review.md)**
   - 验收清单 + 工程思维总结：为什么 dsh 把流式当默认而不是选项
   - 对照 dsh：`sse.ts` 为什么把"缺 `[DONE]`"当成 `STREAM_CLOSED` 错误；`translate.ts` 的有状态块装配；`StreamChunk` 七种类型；`assistant/chunk` 事件为什么必须落盘
 
@@ -288,7 +288,7 @@ src/index.ts     # 改：逐字打印，自己攒完整回复
 
 - [x] 阶段 0：环境与基础
 - [x] 阶段 1：最小 agent
-- [ ] 阶段 2：流式输出
+- [x] 阶段 2：流式输出
 - [ ] 阶段 3：工具循环
 - [ ] 阶段 4：工具集与执行前后
 - [ ] 阶段 5：system prompt 组装
@@ -310,4 +310,4 @@ src/index.ts     # 改：逐字打印，自己攒完整回复
 - [ ] 阶段 21：骨架对齐
 - [ ] 毕业设计
 
-> **下一步**：进入阶段 2 前，先把阶段 2 的小课在本文件里细化出来（照阶段 0、1 的粒度），再动手写讲义和代码。
+> **下一步**：进入阶段 3 前，先把阶段 3 的小课在本文件里细化出来（照阶段 0–2 的粒度），再动手写讲义和代码。
