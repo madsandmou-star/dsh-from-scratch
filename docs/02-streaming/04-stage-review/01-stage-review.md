@@ -154,6 +154,8 @@ invokeContainedSessionObservers(...)        // ④ 再同步广播 session/event
 **UI 和持久化是同一次广播的两个并列订阅者**，UI 不需要等磁盘。真正的耐久检查点是 `session/flush`（`@mode parallel`，会被 await）。
 
 > 那磁盘写到底发生在什么时候？攒批、语义检查点、卸载 drain 三条路径，见附录：[内存日志什么时候真的落盘](../../appendix/durability-checkpoints.md)。
+>
+> opencode 在这四段链路上的选择几乎处处相反，逐段对比见附录：[流式的四段链路](../../appendix/streaming-opencode-vs-dsh.md)。
 
 所以"用户看到了但日志里没有"在物理上不可能——**日志是广播的上游**。但"用户看到了而磁盘还没写完"是完全可能的，那是另一个层次的问题，靠 `session/flush` 收口。
 

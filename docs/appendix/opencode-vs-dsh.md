@@ -102,6 +102,8 @@ experimental.compaction.autocontinue            experimental.text.complete
 
 这也解释了 dsh 为什么有 2,469 篇文档：**隐式装配必须用文档还债。**
 
+> 流式这条链路（SSE 解析 → 内存 → 落盘 → 用户可见）的逐段对比另开一篇：[流式的四段链路](streaming-opencode-vs-dsh.md)。
+
 ## 三、优缺点与判断
 
 | 维度 | 更强的一方 | 理由 |
