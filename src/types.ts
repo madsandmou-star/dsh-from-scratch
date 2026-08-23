@@ -22,7 +22,18 @@ export interface Message {
  */
 export interface StreamChunk {
   choices: Array<{
-    delta: { role?: 'assistant', content?: string }
+    delta: {
+      role?: 'assistant'
+      /** 文本增量。模型选择只调用工具时是 null。 */
+      content?: string | null
+      /** 工具调用增量。阶段 3.2 会讲它为什么是"增量"而不是完整对象。 */
+      tool_calls?: Array<{
+        index: number
+        id?: string
+        type?: 'function'
+        function?: { name?: string, arguments?: string }
+      }>
+    }
     finish_reason: string | null
   }>
 }

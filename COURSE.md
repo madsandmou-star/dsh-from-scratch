@@ -136,9 +136,48 @@ src/index.ts     # 改：逐字打印，自己攒完整回复
 
 > **目标**：让模型能调用你的函数——agent 与聊天机器人的分界线。
 >
-> **产出**：agent 能自己决定读哪个文件来回答问题。
->
-> **对照**：`dsh/packages/core/agent-loop/src/tool-calls.ts`，以及"一个 step = 一次模型请求 + 它调用的工具"这个定义。
+> **产出**：agent 能自己决定读哪个文件来回答问题；一个 turn 里出现多个 step。
+
+#### 课程
+
+- **3.1 [模型怎么"要求"调工具](docs/03-tool-loop/01-tool-calling/01-tool-calling.md)**
+  - 先撞墙：拿现在的 agent 去接一个返回工具调用的响应，看它怎么死
+  - 请求里多出来的 `tools` 字段：函数名、描述、JSON Schema 参数
+  - 响应里的 `tool_calls` 与 `finish_reason: "tool_calls"`
+  - 第四种 role：`tool`，以及 `tool_call_id` 怎么把结果和调用配对
+  - **描述是写给模型看的提示词**——工具设计的第一课
+  - 教 debug：模型不调工具时先怀疑描述，不是先怀疑模型
+
+- **3.2 流式下把工具调用拼起来**（未写）
+  - 2.4 预告的那笔债：`arguments` 是分块到达的 JSON 字符串
+  - 按 `index` 累积，`id` 和 `name` 只在第一块出现
+  - 什么时候算"收全了"：靠 `finish_reason`，不是靠 JSON 能不能解析
+  - 对照 dsh：`block-start` / `tool-call-delta` / `block-end` 三件套为什么好用
+
+- **3.3 定义一个工具并执行它**（未写）
+  - `Tool` 接口：name / description / parameters / execute
+  - 实现 `read` 工具：读文件、加行号
+  - 工具的输出是**给模型看的文本**，不是给人看的
+  - 参数校验：模型给的 JSON 是不可信输入（阶段 0 那条边界规则的又一次应用）
+
+- **3.4 tool loop：agent 的本质**（未写）
+  - 循环：模型请求 → 有工具调用？→ 执行 → 结果喂回 → 再请求 → 直到没有工具调用
+  - `max_steps` 防无限循环
+  - 一个 turn 里终于出现了多个 step——1.4 定义的术语在这里兑现
+  - 失败的工具怎么办：把错误也喂回给模型（半成品主题的新变体）
+
+- **3.5 阶段验收**（未写）
+  - 对照 dsh：`ToolRuntime` 注册表 + `tools/pre-execute` → `tools/execute` → `tools/post-execute` 管线
+  - 为什么 dsh 把工具执行做成三段事件而不是一个函数调用
+
+#### 阶段产出
+
+```
+src/tool.ts        # 新增：Tool 接口 + read 工具
+src/llm.ts         # 改：请求带 tools，流式累积 tool_calls
+src/index.ts       # 改：tool loop
+src/types.ts       # 改：ToolCall、tool role
+```
 
 ### 阶段 4：工具集与执行前后
 
@@ -289,7 +328,7 @@ src/index.ts     # 改：逐字打印，自己攒完整回复
 - [x] 阶段 0：环境与基础
 - [x] 阶段 1：最小 agent
 - [x] 阶段 2：流式输出
-- [ ] 阶段 3：工具循环
+- [ ] 阶段 3：工具循环（进行中）
 - [ ] 阶段 4：工具集与执行前后
 - [ ] 阶段 5：system prompt 组装
 - [ ] 阶段 6：会话落盘
@@ -310,4 +349,4 @@ src/index.ts     # 改：逐字打印，自己攒完整回复
 - [ ] 阶段 21：骨架对齐
 - [ ] 毕业设计
 
-> **下一步**：进入阶段 3 前，先把阶段 3 的小课在本文件里细化出来（照阶段 0–2 的粒度），再动手写讲义和代码。
+> **下一步**：阶段 3 已细化并开讲（3.1 完成）。下一节 3.2：流式下累积工具调用。

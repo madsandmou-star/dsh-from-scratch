@@ -47,9 +47,19 @@ export async function* chatStream(
     if (payload === '[DONE]') { 见过DONE = true; break }
 
     const chunk = JSON.parse(payload) as StreamChunk
-    const delta = chunk.choices[0]?.delta.content
-    // delta 可能是 undefined（例如只带 finish_reason 的那一帧）或空字符串，两种都跳过。
-    if (delta !== undefined && delta !== '') yield delta
+    const choice = chunk.choices[0]
+
+    // 模型要求调用工具时，这一帧的 content 是 null，真正的内容在 delta.tool_calls 里。
+    // 阶段 3.2 会把分块到达的工具调用拼起来，3.3 才真正执行它。现在先明确地拒绝，
+    // 而不是让 null 一路流到 process.stdout.write() 去炸出一句无关的报错。
+    if (choice?.delta.tool_calls !== undefined) {
+      const 名字 = choice.delta.tool_calls.map(call => call.function?.name).filter(Boolean).join(', ')
+      throw new Error(`模型要求调用工具${名字 === '' ? '' : `（${名字}）`}，但阶段 3.3 之前还不支持`)
+    }
+
+    const delta = choice?.delta.content
+    // content 可能是 undefined（只带 finish_reason 的那一帧）、null（模型选择只调工具）或空字符串，三种都跳过。
+    if (delta !== undefined && delta !== null && delta !== '') yield delta
   }
 
   // 没等到 [DONE] 流就结束了 = 响应被截断（网络断、服务器崩、代理超时）。
