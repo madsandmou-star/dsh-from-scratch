@@ -182,6 +182,83 @@ this.session.append('assistant/message', { turn, step, message, ...usage },
 
 于是两层之间有一条**可机器检查的派生链**：UI 能把那批 chunk 折叠成一条消息而不产生歧义，审计时能反查"这条消息是从哪些碎片来的"。
 
+### ③′ 举例：流到一半出错时，日志和屏幕各是什么样
+
+先看错误路径的代码（`agent.ts`），两个 `finally` 是关键：
+
+```ts
+this.session.append('step/start', { turn, step })
+try { ... } finally {
+  this.session.append('step/end', { turn, step })        // ← 无论如何都写
+}
+...
+} catch (error) {
+  if (signal.aborted) { turnEnds = { kind: 'aborted', reason: signal.reason }; throw error }
+  turnEnds = { kind: 'error', error: error instanceof LlmError
+    ? error.failure                                       // LlmError 保留它的分类码
+    : { message: errorChain(error), code: 'UNKNOWN' } }   // 其他错误压成文本
+  this.throwError(error)
+} finally {
+  this.session.append('turn/end', { turn, reason: turnEnds! })   // ← 无论如何都写
+}
+```
+
+**失败不是"什么都没发生"，失败本身也是一条要记录的事实。**
+
+假设模型正在回答"agent 是能自己调用工具的程序"，吐到"agent 是能自己"的时候流断了。三种情况对比：
+
+#### A. 正常完成
+
+| 时刻 | 内存日志追加了什么 | 用户屏幕 |
+|---|---|---|
+| t0 | `turn/start` `step/start` | （空） |
+| t1..t5 | `assistant/chunk` × 5 | `agent 是能自己调用工具去完成任务的程序。` |
+| t6 | `assistant/message`（带 `sourceEventSeqs`） | 同上 |
+| t7 | `step/end` `turn/end{completed}` | 同上 |
+
+模型下一轮看到：完整回复（来自 `assistant/message`）。
+
+#### B. 传输截断（缺 `[DONE]` 或连接断）
+
+| 时刻 | 内存日志追加了什么 | 用户屏幕 |
+|---|---|---|
+| t0 | `turn/start` `step/start` | （空） |
+| t1..t3 | `assistant/chunk` × 3 | `agent 是能自己` |
+| t4 | ✗ **没有 `assistant/message`** | 同上（字还在屏幕上） |
+| t5 | `step/end` | 同上 |
+| t6 | `turn/end{ kind:'error', error:{ code:'STREAM_CLOSED', message:'SSE stream ended without [DONE]' } }` | UI 收到这条事件，渲染出错误状态 |
+
+**模型下一轮看到：什么都没有。** 因为模型可见面只认 `assistant/message`，而它没被写。
+
+于是三方各自正确且互不矛盾：
+
+- **屏幕**：用户看到了"agent 是能自己"——这是事实，收不回来，也不必收回
+- **日志**：三条 chunk 都在（可重放、可审计），外加一条明确的失败记录
+- **模型**：完全不知道有过这段残片，下一轮不会被半句话污染
+
+#### C. 用户取消（Ctrl-C / 点停止）
+
+| 时刻 | 内存日志追加了什么 | 用户屏幕 |
+|---|---|---|
+| t1..t3 | `assistant/chunk` × 3 | `agent 是能自己` |
+| t4 | `assistant/message{ interrupted: true, sourceEventSeqs:[…] }` | 同上 |
+| t5 | `step/end` `turn/end{ kind:'aborted', reason }` | UI 渲染"已中断" |
+
+**模型下一轮看到：`agent 是能自己`**，并且知道它是被打断的。
+
+B 和 C 的日志差别只有一条事件（`assistant/message` 在不在），但语义天差地别——**这就是 2.4 反复强调的"已提交的事实 vs 不可信的残片"在数据上的样子**。
+
+#### 对照我们的课程代码
+
+| | dsh | 我们（阶段 2 结束时） |
+|---|---|---|
+| 三条 chunk | 在日志里，可重放 | **不存在**——直接 `stdout.write` 泼出去了 |
+| 失败记录 | `turn/end{error, code}` 落盘 | 一行 `console.error`，进程退出就没了 |
+| 模型下一轮 | 干净（没有 message） | 干净（我们 `messages.pop()`） |
+| 能否事后追查"用户当时看到了什么" | 能 | **不能** |
+
+最后一行是真正的差距。**我们只做对了"模型不被污染"，没做到"发生过什么有据可查"。** 阶段 12 补上。
+
 ### ④ 断掉的时候，三方各自正确
 
 | 情况 | 日志里有 | 模型下一轮看到 | 用户看到 |
