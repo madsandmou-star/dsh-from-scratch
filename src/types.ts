@@ -17,6 +17,27 @@ export interface Message {
 }
 
 /**
+ * 一次拼装完成的工具调用。`arguments` 保持字符串——它是模型生成的 JSON 文本，
+ * 是不可信输入，解析和校验属于执行方的责任（阶段 3.3）。
+ */
+export interface ToolCall {
+  id: string
+  name: string
+  arguments: string
+}
+
+/**
+ * `chatStream()` 产出的东西。
+ *
+ * 阶段 2 它只产出文本增量（一个 string），现在多了"工具调用"这一类，
+ * 所以改成带标签的联合类型——调用方 switch 一下就知道该干什么。
+ * dsh 的 `StreamChunk` 是同一个思路，只是它有七个成员（见 2.4）。
+ */
+export type StreamEvent =
+  | { type: 'text', text: string }
+  | { type: 'tool-calls', calls: ToolCall[] }
+
+/**
  * 流式响应里每一帧的结构。注意是 `delta`（增量）不是 `message`（快照）。
  * 阶段 3 加工具调用时，delta 里还会出现 `tool_calls`，那时这个类型会长大。
  */

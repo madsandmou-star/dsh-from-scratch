@@ -5,7 +5,7 @@
 
 import { parseSse } from './sse.ts'
 import type { Config } from './config.ts'
-import type { Message, StreamChunk } from './types.ts'
+import type { Message, StreamChunk, StreamEvent, ToolCall } from './types.ts'
 
 /**
  * 发一次流式 chat completion 请求，逐块产出模型的输出。
@@ -18,12 +18,12 @@ import type { Message, StreamChunk } from './types.ts'
  *
  * @param messages - 完整的对话历史。
  * @param config - 连接事实与密钥。
- * @returns 依次产出文本增量；流正常结束时返回，异常时抛错。
+ * @returns 依次产出文本增量，以及（如果模型要求调工具）流末一条拼装完成的工具调用事件。
  */
 export async function* chatStream(
   messages: Message[],
   config: Config & { apiKey: string },
-): AsyncGenerator<string, void> {
+): AsyncGenerator<StreamEvent, void> {
   const response = await fetch(`${config.baseURL}/chat/completions`, {
     method: 'POST',
     headers: {
@@ -42,6 +42,11 @@ export async function* chatStream(
 
   let 见过DONE = false
 
+  // 工具调用是**按 index 分组的增量**：`id` 和 `name` 只在每组的第一块出现，
+  // 后续碎片只有 index 和一截 arguments 文本。所以要按 index 攒。
+  // 用 Map 而不是数组：index 不保证从 0 开始，也不保证连续。
+  const 攒着的工具 = new Map<number, { id: string, name: string, args: string }>()
+
   for await (const payload of parseSse(response.body)) {
     // [DONE] 是 OpenAI 协议的收尾标记，不是一条内容。见到它就结束。
     if (payload === '[DONE]') { 见过DONE = true; break }
@@ -49,17 +54,20 @@ export async function* chatStream(
     const chunk = JSON.parse(payload) as StreamChunk
     const choice = chunk.choices[0]
 
-    // 模型要求调用工具时，这一帧的 content 是 null，真正的内容在 delta.tool_calls 里。
-    // 阶段 3.2 会把分块到达的工具调用拼起来，3.3 才真正执行它。现在先明确地拒绝，
-    // 而不是让 null 一路流到 process.stdout.write() 去炸出一句无关的报错。
-    if (choice?.delta.tool_calls !== undefined) {
-      const 名字 = choice.delta.tool_calls.map(call => call.function?.name).filter(Boolean).join(', ')
-      throw new Error(`模型要求调用工具${名字 === '' ? '' : `（${名字}）`}，但阶段 3.3 之前还不支持`)
+    for (const 增量 of choice?.delta.tool_calls ?? []) {
+      const 已有 = 攒着的工具.get(增量.index) ?? { id: '', name: '', args: '' }
+      攒着的工具.set(增量.index, {
+        // id / name 只在第一块出现，后续块里是 undefined —— 不能直接覆盖，否则第一块的值会被冲掉。
+        id: 增量.id ?? 已有.id,
+        name: 增量.function?.name ?? 已有.name,
+        // arguments 是唯一需要拼接的字段。
+        args: 已有.args + (增量.function?.arguments ?? ''),
+      })
     }
 
     const delta = choice?.delta.content
     // content 可能是 undefined（只带 finish_reason 的那一帧）、null（模型选择只调工具）或空字符串，三种都跳过。
-    if (delta !== undefined && delta !== null && delta !== '') yield delta
+    if (delta !== undefined && delta !== null && delta !== '') yield { type: 'text', text: delta }
   }
 
   // 没等到 [DONE] 流就结束了 = 响应被截断（网络断、服务器崩、代理超时）。
@@ -67,4 +75,15 @@ export async function* chatStream(
   // 调用方必须知道这件事——所以这里抛错，而不是安静地正常返回。
   // dsh 在 packages/llm/llm-deepseek/src/sse.ts 里做同样的判断，错误码是 STREAM_CLOSED。
   if (!见过DONE) throw new Error('流在收到 [DONE] 之前就结束了：这次回复不完整，不可信')
+
+  // 到这里流已经完整结束了，攒着的工具调用才算收全。
+  // **不能用"arguments 能否 JSON.parse 成功"来判断收全**：`{}` 是合法 JSON，
+  // 而它完全可能只是 `{"path": "x"}` 的一个前缀状态；反过来也不知道后面还有没有第三个工具要来。
+  // 唯一可靠的信号是协议给的——流结束了。
+  if (攒着的工具.size > 0) {
+    const calls: ToolCall[] = [...攒着的工具.entries()]
+      .sort(([a], [b]) => a - b)      // 按 index 排序，让调用顺序稳定可复现
+      .map(([, call]) => ({ id: call.id, name: call.name, arguments: call.args }))
+    yield { type: 'tool-calls', calls }
+  }
 }

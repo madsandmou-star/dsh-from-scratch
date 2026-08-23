@@ -43,9 +43,16 @@ for await (const line of rl) {
   process.stdout.write('\n模型 > ')
   let reply = ''
   try {
-    for await (const delta of chatStream(messages, config)) {
-      process.stdout.write(delta)     // 逐字上屏，不换行
-      reply += delta                  // 同时攒完整文本
+    for await (const event of chatStream(messages, config)) {
+      if (event.type === 'text') {
+        process.stdout.write(event.text)     // 逐字上屏，不换行
+        reply += event.text                  // 同时攒完整文本
+        continue
+      }
+      // 阶段 3.3 会在这里真正执行工具并把结果喂回模型。现在先把拼装结果显示出来，
+      // 证明累积逻辑是对的。
+      console.log('\n[模型要求调用工具]')
+      for (const call of event.calls) console.log(`  ${call.name}(${call.arguments})   id=${call.id}`)
     }
   } catch (error) {
     // 流式带来的第二个变化：失败时屏幕上已经有半句话了，收不回来。
