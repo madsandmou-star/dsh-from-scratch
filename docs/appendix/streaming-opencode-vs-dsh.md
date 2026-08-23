@@ -108,6 +108,48 @@ opencode 的 `Text.Delta` 虽然不落盘，但**照样 publish 到事件总线*
 
 dsh 选了后者——它的 226 个包里有 796 个测试文件、271k 行测试代码，其中快照测试要重放真实的流。**token 级日志不是洁癖，是那套测试策略的物理前提。**
 
+## 如果非要选一边（教师判断，不是事实）
+
+以下是判断，不是源码事实，读的时候请带着怀疑。
+
+**① SSE 语义：dsh 略胜。** `[DONE]` 是 OpenAI 系事实标准的终止符，把它降级成 keep-alive 就放弃了唯一能区分"干净结束"和"干净截断"的显式信号。opencode 大概率靠 finish 事件缺失达到类似效果，但那是隐式的——我在它源码里没找到显式的截断检测。**对"这段数据可不可信"这种判断，显式优于隐式。**
+
+**② 内存态：dsh 明显更好，这条我最有把握。** opencode 同时有事件溯源**和**可变投影缓存（`updateAssistant` 原地改写），等于**两套真相要保持一致**；源码里 "A newer turn supersedes stale incomplete rows; never resume an older assistant projection" 这类注释，就是在手工处理这种不一致。dsh 只有一套真相加纯函数投影，而且能写出 `deriveMessages()` 结果必须等于实际请求的 runtime invariant——**这条断言在可变投影的架构里根本无法表达**。
+
+代价要说清楚：纯投影每次都要 fold 日志，dsh 为此额外做了 `session-projection-cache`。它没有免费。
+
+**③ 落盘粒度：看产品，但 dsh 的选择更有杠杆。** 理由不是"记得更全"，而是它让一整类实践成为可能：**流级快照测试**。dsh 的 keyless 快照要重放真实的流，物理前提就是 token 级记录。opencode 只能做到消息级回归。
+
+反过来说，绝大多数产品不需要 token 级重放，而 dsh 为此付的复杂度（write-behind + 检查点策略 + 两层事件 + provenance 校验）是实打实的。**团队小、迭代快的产品，这套机制的维护成本可能超过收益。**
+
+**④ 用户可见：平手。** 两边同构。
+
+## 一处 opencode 明显更好
+
+**Provider 层的组合能力。** opencode 把一条 route 拆成四个可组合的轴——`protocol` / `endpoint` / `auth` / `framing`，其中 framing 是有名字的接口：
+
+```ts
+export interface Framing<Frame> {
+  readonly id: string
+  readonly frame: (bytes: Stream.Stream<Uint8Array, LLMError>) => Stream.Stream<Frame, LLMError>
+}
+export const sse: Framing<string> = { id: "sse", frame: ProviderShared.sseFraming }
+```
+
+而且**真有第二个实现**：`protocols/bedrock-event-stream.ts` 里的 `framing()` 返回 `Framing<object>`，处理 AWS 的长度前缀二进制帧。
+
+dsh 的 `sse.ts` 是 `llm-deepseek` 包**私有**的。今天没有重复代码（另一个适配器 `llm-pi-ai` 走 SDK，不碰 SSE），但结构上，第三个直连供应商如果用别的分帧方式，dsh 只能在那个适配器内部再写一份。
+
+**这一刀正好砍在 dsh 最引以为傲的地方**：它在 fs / shell / subprocess 这些能力上把 seam 拆得很干净，却在 provider 内部留了一块没有拆的 transport 层。opencode 反过来——产品面的 seam 更粗，provider 面的组合更细。
+
+## 总的判断
+
+**dsh 在"正确性可论证"这个维度上明显更好；opencode 在"用最少机制交付产品"这个维度上更好。**
+
+我个人倾向 dsh 的路线，理由是一个具体观察：**dsh 的每个关键决定都被一条机器检查钉住**——invariant 断言投影一致、gate 强制 `sourceEventSeqs` 非空且密集、检查点 fail-closed；而 opencode 的对应保证多数活在注释和约定里（"A newer turn supersedes stale incomplete rows" 是注释，不是断言）。
+
+**在一个大量由 AI 编写和修改的代码库里，这个区别会被放大：注释约束不住 AI，机器检查能。**
+
 ---
 
 回到 [2.4 阶段验收](../02-streaming/04-stage-review/01-stage-review.md) · 相关：[opencode 与 dsh 的体量与架构对比](opencode-vs-dsh.md)
