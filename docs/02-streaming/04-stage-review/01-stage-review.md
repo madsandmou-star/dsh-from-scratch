@@ -105,7 +105,7 @@ dsh 的 session 日志里有这么一个事件类型：
 
 我们的代码正是这个毛病（2.3 亲历过）。dsh 用三件事把它消解掉了。
 
-### ① 顺序是反的：先落盘，再上屏
+### ① 顺序是反的：先入日志，再广播
 
 `dsh/packages/core/agent-loop/src/agent.ts` 的流循环：
 
@@ -117,11 +117,45 @@ for await (const chunk of stream) {
 }
 ```
 
-**每个 chunk 一到，先 append 进日志拿到 `seq`，然后才交给装配器。** 而 UI 不是从模型流渲染的——它订阅 `session/event`。
+**每个 chunk 一到，先 `append` 进日志拿到 `seq`，然后才交给装配器。**
 
-所以数据流是：`模型流 → 日志 → 广播 → UI`。**"用户看到了但没落盘"在物理上不可能发生**，因为日志在上游。
+`append` 内部的顺序（`dsh/packages/core/session/src/index.ts`）值得逐行看：
 
-我们的课程代码是反的：`process.stdout.write(delta)` 直接把模型流泼到屏幕，历史最后才写。不一致正是这么来的。
+```ts
+this.surfaceManager.validateNext(event)     // ① 校验：不合规直接抛，根本不进日志
+...
+callbacks = collectSessionCallbacks(...)    // ② 先固定订阅者名单
+this.log.push(event)                        // ③ 进日志——此刻它成为事实
+invokeContainedSessionObservers(...)        // ④ 再同步广播 session/event
+```
+
+四个细节：
+
+- 事件是 `deepFreeze` 的，`seq` 就是它在日志里的位置——**不可变、有序、可引用**。
+- 校验在入库之前：不合规的事件不会污染日志。
+- **订阅者名单在 push 之前就固定**，避免监听器在广播中途注册/注销影响本次派发。
+- 有重入保护：广播期间再调 `append` 会直接抛错，防止监听器递归写日志把顺序搞乱。
+
+### ①′ "落盘"这个词要小心
+
+`append` 写的是**内存日志**，不是磁盘。磁盘持久化是**另一个插件**的事——`session` 的模块注释写得很清楚：
+
+> Persistence is a plugin concern（订阅 `session/event`，在 `session/flush` 时 drain）。
+
+所以准确的图是这样：
+
+```
+模型流 → session.append（内存日志，成为事实）
+             │
+             └─ emit session/event ─┬→ UI / ACP / SDK 传输层  →  用户看到
+                                    └→ 持久化插件（缓冲）  ──→ session/flush 时落盘
+```
+
+**UI 和持久化是同一次广播的两个并列订阅者**，UI 不需要等磁盘。真正的耐久检查点是 `session/flush`（`@mode parallel`，会被 await）。
+
+所以"用户看到了但日志里没有"在物理上不可能——**日志是广播的上游**。但"用户看到了而磁盘还没写完"是完全可能的，那是另一个层次的问题，靠 `session/flush` 收口。
+
+我们的课程代码则连第一层都没有：`process.stdout.write(delta)` 直接把模型流泼到屏幕，历史最后才写。不一致正是这么来的。
 
 ### ② 两层不同的真相，各自完整
 
