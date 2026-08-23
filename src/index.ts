@@ -9,9 +9,39 @@
 import { createInterface } from 'node:readline/promises'
 import { loadConfig } from './config.ts'
 import { chatStream } from './llm.ts'
+import { tools } from './tool.ts'
 import type { Message } from './types.ts'
 
 const config = loadConfig()
+
+/**
+ * 按名字执行一个工具。
+ *
+ * 三类失败都在这里被转成**文本**而不是抛异常：找不到工具、参数不是合法 JSON、
+ * 工具自己执行失败。原因在 3.4 讲——简单说：这些失败要喂回给模型，让它自己改正，
+ * 而不是把整个 agent 打断。
+ * @param 名字 - 模型要调用的工具名。
+ * @param 参数JSON - 模型生成的参数文本，未经解析。
+ * @returns 给模型看的执行结果或错误说明。
+ */
+async function 执行工具(名字: string, 参数JSON: string): Promise<string> {
+  const tool = tools.find(t => t.name === 名字)
+  if (tool === undefined) return `错误：不存在名为 ${名字} 的工具。可用工具：${tools.map(t => t.name).join(', ')}`
+
+  let 参数: Record<string, unknown>
+  try {
+    参数 = JSON.parse(参数JSON) as Record<string, unknown>
+  } catch (error) {
+    // 模型生成的 JSON 可能不合法——这不是 bug，是它偶尔会犯的错。
+    return `错误：参数不是合法的 JSON（${error instanceof Error ? error.message : String(error)}）。收到的原文：${参数JSON}`
+  }
+
+  try {
+    return await tool.execute(参数)
+  } catch (error) {
+    return `错误：${error instanceof Error ? error.message : String(error)}`
+  }
+}
 
 // 模型本身是无状态的：它不记得上一次你说了什么。
 // 所谓"多轮对话"，就是每一轮都把**整个历史**重新发一遍。
@@ -49,10 +79,13 @@ for await (const line of rl) {
         reply += event.text                  // 同时攒完整文本
         continue
       }
-      // 阶段 3.3 会在这里真正执行工具并把结果喂回模型。现在先把拼装结果显示出来，
-      // 证明累积逻辑是对的。
-      console.log('\n[模型要求调用工具]')
-      for (const call of event.calls) console.log(`  ${call.name}(${call.arguments})   id=${call.id}`)
+      // 3.4 会把执行结果喂回模型再问一轮（tool loop）。这一课先执行一次看效果。
+      for (const call of event.calls) {
+        console.log(`\n[工具] ${call.name}(${call.arguments})`)
+        const 结果 = await 执行工具(call.name, call.arguments)
+        console.log(结果.split('\n').slice(0, 6).map(行 => `       ${行}`).join('\n'))
+        console.log(`       …（共 ${结果.split('\n').length} 行，3.4 会把它喂回给模型）`)
+      }
     }
   } catch (error) {
     // 流式带来的第二个变化：失败时屏幕上已经有半句话了，收不回来。

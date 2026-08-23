@@ -4,6 +4,7 @@
 // 这一个改动会一路传染到调用方——见 index.ts。
 
 import { parseSse } from './sse.ts'
+import { tools, 转成wire格式 } from './tool.ts'
 import type { Config } from './config.ts'
 import type { Message, StreamChunk, StreamEvent, ToolCall } from './types.ts'
 
@@ -30,8 +31,8 @@ export async function* chatStream(
       'content-type': 'application/json',
       authorization: `Bearer ${config.apiKey}`,
     },
-    // 和阶段 1 唯一的请求差别：stream: true。
-    body: JSON.stringify({ model: config.model, messages, stream: true }),
+    // 3.1 撞墙时发现的问题在这里补上：不告诉模型有哪些工具，它永远不会调用工具。
+    body: JSON.stringify({ model: config.model, messages, stream: true, tools: 转成wire格式(tools) }),
   })
 
   if (!response.ok) {

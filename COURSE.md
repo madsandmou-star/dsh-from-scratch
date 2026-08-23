@@ -154,7 +154,7 @@ src/index.ts     # 改：逐字打印，自己攒完整回复
   - 什么时候算"收全了"：靠 `finish_reason`，不是靠 JSON 能不能解析
   - 对照 dsh：`block-start` / `tool-call-delta` / `block-end` 三件套为什么好用
 
-- **3.3 定义一个工具并执行它**（未写）
+- **3.3 [定义一个工具并执行它](docs/03-tool-loop/03-define-tool/01-define-tool.md)**
   - `Tool` 接口：name / description / parameters / execute
   - 实现 `read` 工具：读文件、加行号
   - 工具的输出是**给模型看的文本**，不是给人看的
@@ -349,4 +349,4 @@ src/types.ts       # 改：ToolCall、tool role
 - [ ] 阶段 21：骨架对齐
 - [ ] 毕业设计
 
-> **下一步**：阶段 3 进行中（3.1、3.2 完成）。下一节 3.3：定义 Tool 接口并执行 read 工具。
+> **下一步**：阶段 3 进行中（3.1–3.3 完成）。下一节 3.4：tool loop。
