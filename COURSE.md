@@ -166,7 +166,7 @@ src/index.ts     # 改：逐字打印，自己攒完整回复
   - 一个 turn 里终于出现了多个 step——1.4 定义的术语在这里兑现
   - 失败的工具怎么办：把错误也喂回给模型（半成品主题的新变体）
 
-- **3.5 阶段验收**（未写）
+- **3.5 [阶段验收](docs/03-tool-loop/05-stage-review/01-stage-review.md)**
   - 对照 dsh：`ToolRuntime` 注册表 + `tools/pre-execute` → `tools/execute` → `tools/post-execute` 管线
   - 为什么 dsh 把工具执行做成三段事件而不是一个函数调用
 
@@ -328,7 +328,7 @@ src/types.ts       # 改：ToolCall、tool role
 - [x] 阶段 0：环境与基础
 - [x] 阶段 1：最小 agent
 - [x] 阶段 2：流式输出
-- [ ] 阶段 3：工具循环（进行中）
+- [x] 阶段 3：工具循环
 - [ ] 阶段 4：工具集与执行前后
 - [ ] 阶段 5：system prompt 组装
 - [ ] 阶段 6：会话落盘
@@ -349,4 +349,4 @@ src/types.ts       # 改：ToolCall、tool role
 - [ ] 阶段 21：骨架对齐
 - [ ] 毕业设计
 
-> **下一步**：阶段 3 进行中（3.1–3.4 完成）。下一节 3.5：阶段验收。
+> **下一步**：阶段 3 完成。进入阶段 4 前，先把阶段 4 的小课在本文件里细化出来。
