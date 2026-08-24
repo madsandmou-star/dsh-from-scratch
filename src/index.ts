@@ -10,7 +10,7 @@ import { createInterface } from 'node:readline/promises'
 import { loadConfig } from './config.ts'
 import { chatStream } from './llm.ts'
 import { tools } from './tool.ts'
-import type { Message } from './types.ts'
+import type { Message, ToolCall } from './types.ts'
 
 const config = loadConfig()
 
@@ -57,48 +57,86 @@ const rl = createInterface({ input: process.stdin, output: process.stdout })
 
 process.stdout.write('\n你 > ')
 
-// 顶层 await：ESM 模块可以直接在模块顶层写 await，不需要包一个 main() 再调用。
+/**
+ * 一个 turn 里最多允许多少个 step。
+ *
+ * 防的是"模型反复调工具但永远不给最终回答"——它可能陷在一个自己看不出来的循环里
+ * （读 A 发现要读 B，读 B 发现要读 A）。没有这个上限，agent 会一直烧钱直到你按 Ctrl-C。
+ */
+const 最大步数 = 10
+
+/**
+ * 跑完一个 turn：不断执行 step，直到模型不再要求调用工具。
+ *
+ * 一个 **step** = 一次模型请求 + 它这一轮要求的工具执行（1.4 定义过）。
+ * 一个 **turn** = 从一条用户输入开始，到没有任何未了结的事为止。
+ * 阶段 1 的每个 turn 只有一个 step；工具循环让"一个 turn 多个 step"第一次真的发生。
+ */
+async function 跑一个turn(): Promise<void> {
+  for (let step = 1; step <= 最大步数; step++) {
+    process.stdout.write(`\n模型 > `)
+    let 文本 = ''
+    let 工具调用: ToolCall[] = []
+
+    for await (const event of chatStream(messages, config)) {
+      if (event.type === 'text') {
+        process.stdout.write(event.text)
+        文本 += event.text
+        continue
+      }
+      工具调用 = event.calls
+    }
+
+    // 把模型这一轮的产出记进历史。注意 content 可能是 null——模型只调工具不说话时就是这样，
+    // 而这条 assistant 消息**必须**进历史：下一轮请求里，每条 tool 结果都要能找到它对应的调用。
+    messages.push({
+      role: 'assistant',
+      content: 文本 === '' ? null : 文本,
+      ...工具调用.length === 0 ? {} : {
+        tool_calls: 工具调用.map(call => ({
+          id: call.id,
+          type: 'function' as const,
+          function: { name: call.name, arguments: call.arguments },
+        })),
+      },
+    })
+
+    // 模型没要求调工具 = 它给出了最终回答 = 这个 turn 结束了。
+    if (工具调用.length === 0) { console.log(); return }
+
+    // 执行这一轮的每个工具，结果作为 tool 消息喂回历史。
+    for (const call of 工具调用) {
+      console.log(`\n  [工具] ${call.name}(${call.arguments})`)
+      const 结果 = await 执行工具(call.name, call.arguments)
+      const 首行 = 结果.split('\n')[0] ?? ''
+      console.log(`         → ${首行.slice(0, 70)}${结果.length > 70 ? ' …' : ''}`)
+      // tool_call_id 把结果和调用配对。少一条、或者 id 对不上，下一次请求就是非法的。
+      messages.push({ role: 'tool', tool_call_id: call.id, content: 结果 })
+    }
+    // 带着工具结果再问一轮 —— 这就是 tool loop。
+  }
+
+  console.error(`\n[已达最大步数 ${最大步数}，停止本轮]`)
+}
+
 for await (const line of rl) {
   const input = line.trim()
   if (input === '/exit') break
   if (input === '') { process.stdout.write('\n你 > '); continue }
 
+  const 回滚点 = messages.length
   messages.push({ role: 'user', content: input })
 
-  // 这里是整个 agent 的雏形：收输入 → 组装上下文 → 调模型 → 处理结果 → 回到开头。
-  // 阶段 3 会在"处理结果"这一步分叉出工具调用，那一分叉就是 agent 与聊天机器人的分界线。
-  //
-  // 流式带来的第一个变化：没有"拿到回复"这个时刻了。
-  // 打印和累积同时发生，而"完整回复"要自己攒——攒出来的东西才能进历史。
-  process.stdout.write('\n模型 > ')
-  let reply = ''
   try {
-    for await (const event of chatStream(messages, config)) {
-      if (event.type === 'text') {
-        process.stdout.write(event.text)     // 逐字上屏，不换行
-        reply += event.text                  // 同时攒完整文本
-        continue
-      }
-      // 3.4 会把执行结果喂回模型再问一轮（tool loop）。这一课先执行一次看效果。
-      for (const call of event.calls) {
-        console.log(`\n[工具] ${call.name}(${call.arguments})`)
-        const 结果 = await 执行工具(call.name, call.arguments)
-        console.log(结果.split('\n').slice(0, 6).map(行 => `       ${行}`).join('\n'))
-        console.log(`       …（共 ${结果.split('\n').length} 行，3.4 会把它喂回给模型）`)
-      }
-    }
+    await 跑一个turn()
   } catch (error) {
-    // 流式带来的第二个变化：失败时屏幕上已经有半句话了，收不回来。
-    // 我们的选择是**不把半句话写进历史**：给用户一个明确的中断标记，然后撤回这一轮。
-    // 理由和 2.2 丢弃未终止残片一样——残缺内容进了历史，下一轮模型会拿它当事实。
-    console.error(`\n[本轮中断，已丢弃] ${error instanceof Error ? error.message : String(error)}`)
-    messages.pop()
-    process.stdout.write('\n你 > ')
-    continue
+    // 一个 step 失败会让整个 turn 停下。历史里可能留下一条"要求调工具但没有结果"的
+    // assistant 消息——那是非法状态，下一轮请求会被供应商拒绝。
+    // 这里用最朴素的办法处理：把这个 turn 期间追加的消息全部回滚。
+    // 3.5 会讲 dsh 为什么不这么做，以及它的办法是什么。
+    console.error(`\n[本轮中断，已回滚] ${error instanceof Error ? error.message : String(error)}`)
+    while (messages.length > 回滚点) messages.pop()
   }
-
-  messages.push({ role: 'assistant', content: reply })
-  console.log()
   process.stdout.write('\n你 > ')
 }
 

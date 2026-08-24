@@ -4,16 +4,22 @@
 // "消息"根本不是最原始的东西——事件才是，消息是从事件投影出来的。
 // 现在先保持最小。
 
-/** 一条对话消息的角色。 */
-export type Role = 'system' | 'user' | 'assistant'
+/** 一条对话消息的角色。`tool` 是阶段 3 新增的第四种：工具执行的结果。 */
+export type Role = 'system' | 'user' | 'assistant' | 'tool'
 
 /**
- * 一条对话消息。
- * 这就是 OpenAI 兼容 API 在 `messages` 数组里要的元素：只有角色和文本。
+ * 一条对话消息——也就是 OpenAI 兼容 API 在 `messages` 数组里要的元素。
+ *
+ * 阶段 1 它只有 role 和 content。工具调用让它长出了两个可选字段，
+ * 而且 `content` 变成了可空：模型选择只调工具时不说话。
  */
 export interface Message {
   role: Role
-  content: string
+  content: string | null
+  /** 仅 assistant 消息：模型这一轮要求调用的工具。 */
+  tool_calls?: Array<{ id: string, type: 'function', function: { name: string, arguments: string } }>
+  /** 仅 tool 消息：这条结果对应哪一次调用（配对靠它，不靠顺序）。 */
+  tool_call_id?: string
 }
 
 /**
