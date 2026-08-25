@@ -21,7 +21,11 @@ export interface Config {
 // ESM 里没有 CommonJS 的 __dirname。取代它的是 import.meta.url：
 // 当前模块自己的 URL。用 new URL(相对路径, import.meta.url) 就能算出同级/上级文件的位置，
 // 这样无论你在哪个目录下敲命令，找到的都是 dsh-learn.json。
-const CONFIG_URL = new URL('../dsh-learn.json', import.meta.url)
+// 允许用 DSH_LEARN_CONFIG 指向别的文件：demos/ 下的演示要连假服务器，
+// 不能去改你本地那份真配置。"路径本身也是配置"这件事，第一次用到是在这里。
+const CONFIG_URL = process.env['DSH_LEARN_CONFIG'] === undefined
+  ? new URL('../dsh-learn.json', import.meta.url)
+  : new URL(process.env['DSH_LEARN_CONFIG'], 'file:///')
 
 /**
  * 读取并校验配置，同时从环境变量取出密钥。

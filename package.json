@@ -10,7 +10,8 @@
     "hello": "node --import tsx src/hello.ts",
     "dev": "node --import tsx src/index.ts",
     "check": "node scripts/check-course.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "demo": "node --import tsx"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",

@@ -111,8 +111,12 @@ export DEEPSEEK_API_KEY=sk-...
 # 4. 阶段 1 的多轮对话 agent
 npm run dev          # 等价于 node --import tsx src/index.ts
 
-# 5. 自检：讲义里的链接和源码引用有没有失效
+# 5. 跑一个演示（不需要 key：用的是假模型服务器）
+npm run demo demos/04-tools/04-red-green.mjs
+
+# 6. 自检：讲义里的链接和源码引用有没有失效
 npm run check
+npm run typecheck
 ```
 
 > `dsh/` 是**可选**的：不初始化它，课程代码照样跑，只是讲义里"对照真实源码"那部分点不开。想学到位就初始化它——这门课一半的价值在对照上。
@@ -130,6 +134,7 @@ DshFromScratch/
 │   ├── 00-env-basics/
 │   └── 01-minimal-agent/
 ├── src/                # 教学代码（讲义里的每段代码都在这里能打开）
+├── demos/              # 每一课的可运行演示，都不需要 API key（见 demos/README.md）
 ├── scripts/            # npm run check：链接与源码引用自检
 └── dsh/                # ← 参考源码（submodule，只读，版本固定）
 ```

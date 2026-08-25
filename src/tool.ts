@@ -4,7 +4,7 @@
 // 前三样是给**模型**看的（会被塞进请求的 tools 字段），第四样是给我们自己跑的。
 
 import { spawn } from 'node:child_process'
-import { readFile, writeFile, mkdir } from 'node:fs/promises'
+import { readFile, writeFile, mkdir, readdir, stat } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { resolve, relative, isAbsolute } from 'node:path'
 
@@ -372,8 +372,179 @@ export const bashTool: Tool = {
   },
 }
 
+/**
+ * 搜索时永远不进去的目录。
+ *
+ * 少了这一条，任何一次搜索的结果里 99% 是 `node_modules` 和 `.git`——
+ * 模型要的那几行会被淹没。**过滤噪音和限制数量是两件事，两件都要做。**
+ */
+const 不进的目录 = new Set(['.git', 'node_modules', 'dist', 'lib', 'coverage', '.cache'])
+
+/** 一次搜索最多返回多少条结果。 */
+const 最大结果数 = 100
+
+/** 一条匹配行最多显示多少字符：压缩过的 JS、单行 JSON 数据能一行几十万字符。 */
+const 最大行字符数 = 300
+
+/** 一次搜索最多看多少个文件，防止在超大仓库里跑到天荒地老。 */
+const 最大遍历文件数 = 20_000
+
+/**
+ * 深度优先遍历一个目录下的所有文件，跳过 {@link 不进的目录}。
+ * @param 根目录 - 遍历起点的绝对路径。
+ * @yields 每个文件的绝对路径。
+ */
+async function* 遍历文件(根目录: string): AsyncGenerator<string> {
+  const 待办 = [根目录]
+  let 已看文件数 = 0
+  while (待办.length > 0) {
+    const 目录 = 待办.pop()
+    if (目录 === undefined) return
+    // 目录可能在遍历途中被删掉，或者是个没有权限的目录：跳过它，别让整次搜索失败。
+    const 条目 = await readdir(目录, { withFileTypes: true }).catch(() => [])
+    for (const 条目项 of 条目) {
+      const 完整路径 = resolve(目录, 条目项.name)
+      if (条目项.isDirectory()) {
+        if (!不进的目录.has(条目项.name)) 待办.push(完整路径)
+      } else if (条目项.isFile()) {
+        if (++已看文件数 > 最大遍历文件数) return
+        yield 完整路径
+      }
+      // 符号链接既不进也不 yield：跟着链接走可能绕回自己，变成无限循环。
+    }
+  }
+}
+
+/**
+ * 把一个 glob 模式编译成正则。
+ *
+ * 支持三种通配：`**` 跨目录、`*` 不跨目录、`?` 一个字符。其余字符按字面量处理，
+ * 所以正则元字符必须转义——否则 `a.ts` 里的 `.` 会匹配任意字符。
+ * @param 模式 - 例如 `src/**\/*.ts`。
+ * @returns 用来整体匹配相对路径的正则。
+ */
+function glob转正则(模式: string): RegExp {
+  let 正则 = ''
+  for (let i = 0; i < 模式.length; i++) {
+    const 字符 = 模式[i] ?? ''
+    if (字符 === '*') {
+      if (模式[i + 1] === '*') {
+        正则 += '.*'
+        i++
+        // `**/` 后面的斜杠一起吃掉，这样 `**/*.ts` 也能匹配根目录下的 `a.ts`。
+        if (模式[i + 1] === '/') i++
+      } else {
+        正则 += '[^/]*'
+      }
+    } else if (字符 === '?') {
+      正则 += '[^/]'
+    } else {
+      正则 += 字符.replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    }
+  }
+  return new RegExp(`^${正则}$`)
+}
+
+/** 按文件名模式找文件的工具。 */
+export const globTool: Tool = {
+  name: 'glob',
+  description: '按文件名模式查找文件，返回相对路径列表，最近修改的排在前面。'
+    + '支持 `**`（跨目录）、`*`（不跨目录）、`?`（单字符），例如 `src/**/*.ts`。'
+    + '自动跳过 node_modules、.git 等目录。想按**内容**找请用 grep。',
+  parameters: {
+    type: 'object',
+    properties: {
+      pattern: { type: 'string', description: '文件名模式，例如 `src/**/*.ts`' },
+      path: { type: 'string', description: '可选：搜索起点，相对于当前工作目录，默认是工作目录本身' },
+    },
+    required: ['pattern'],
+  },
+  async execute(args) {
+    const 匹配 = glob转正则(取字符串(args, 'pattern'))
+    const 起点 = args['path'] === undefined ? 工作目录 : 解析路径(取字符串(args, 'path'))
+
+    const 命中: { 路径: string, 修改时间: number }[] = []
+    for await (const 文件 of 遍历文件(起点)) {
+      const 相对路径 = relative(工作目录, 文件)
+      if (!匹配.test(相对路径)) continue
+      命中.push({ 路径: 相对路径, 修改时间: (await stat(文件)).mtimeMs })
+    }
+
+    if (命中.length === 0) return '没有匹配的文件。'
+
+    // 按修改时间倒序：模型问"这个功能的代码在哪"时，最近动过的文件几乎总是最相关的。
+    // dsh 的 glob 也是这个顺序（它靠 `rg --files` 自带的排序拿到）。
+    命中.sort((甲, 乙) => 乙.修改时间 - 甲.修改时间)
+    const 显示 = 命中.slice(0, 最大结果数).map(项 => 项.路径).join('\n')
+    return 命中.length > 最大结果数
+      ? `${显示}\n\n[共 ${命中.length} 个匹配，只显示最近修改的 ${最大结果数} 个。请把 pattern 写得更具体。]`
+      : 显示
+  },
+}
+
+/**
+ * 按内容搜索文件的工具。
+ *
+ * XXX(ReDoS)：`pattern` 直接交给 `new RegExp`，而 JS 的正则引擎会回溯。
+ * 一个 `(a+)+$` 配上足够长的行就能把整个进程**同步**卡死——连超时都救不了，
+ * 因为定时器要等事件循环，而事件循环正被这个正则占着。课程里 4.3 讲了为什么
+ * 这个洞只能靠换引擎补，以及 dsh 是怎么换的。
+ */
+export const grepTool: Tool = {
+  name: 'grep',
+  description: '按内容搜索文件，返回 `文件:行号: 内容` 形式的匹配行。'
+    + 'pattern 是正则表达式。可以用 include 限定文件名，例如 `*.ts`。'
+    + '请用这个工具而不是 bash 里的 grep：它会跳过 node_modules、限制结果数量、并且不经过 shell。',
+  parameters: {
+    type: 'object',
+    properties: {
+      pattern: { type: 'string', description: '正则表达式' },
+      path: { type: 'string', description: '可选：搜索起点，相对于当前工作目录' },
+      include: { type: 'string', description: '可选：只搜文件名匹配这个 glob 的文件，例如 `*.ts`' },
+    },
+    required: ['pattern'],
+  },
+  async execute(args) {
+    const 模式文本 = 取字符串(args, 'pattern')
+    let 匹配: RegExp
+    try {
+      匹配 = new RegExp(模式文本)
+    } catch (error) {
+      // 模型写的正则可能根本编译不过（未闭合的括号最常见）。这是它能改正的错。
+      throw new Error(`pattern 不是合法的正则表达式：${error instanceof Error ? error.message : String(error)}`)
+    }
+    const 起点 = args['path'] === undefined ? 工作目录 : 解析路径(取字符串(args, 'path'))
+    const 文件名过滤 = args['include'] === undefined ? undefined : glob转正则(取字符串(args, 'include'))
+
+    const 结果行: string[] = []
+    let 总匹配数 = 0
+    for await (const 文件 of 遍历文件(起点)) {
+      const 相对路径 = relative(工作目录, 文件)
+      // include 只匹配文件名部分，这样 `*.ts` 不必写成 `**/*.ts`。
+      if (文件名过滤 !== undefined && !文件名过滤.test(相对路径.split('/').at(-1) ?? '')) continue
+
+      // 二进制文件读出来是乱码，正则可能碰巧匹配上，输出是一堆不可打印字符。
+      const 内容 = await readFile(文件, 'utf8').catch(() => undefined)
+      if (内容 === undefined || 内容.includes('\0')) continue
+
+      内容.split('\n').forEach((行, 下标) => {
+        if (!匹配.test(行)) return
+        总匹配数++
+        if (结果行.length >= 最大结果数) return
+        const 裁过的行 = 行.length > 最大行字符数 ? `${行.slice(0, 最大行字符数)}…` : 行
+        结果行.push(`${相对路径}:${下标 + 1}: ${裁过的行}`)
+      })
+    }
+
+    if (总匹配数 === 0) return '没有匹配。'
+    return 总匹配数 > 最大结果数
+      ? `${结果行.join('\n')}\n\n[共 ${总匹配数} 处匹配，只显示前 ${最大结果数} 处。请把 pattern 或 include 写得更具体。]`
+      : 结果行.join('\n')
+  },
+}
+
 /** 本课程当前可用的工具。 */
-export const tools: Tool[] = [readTool, writeTool, editTool, bashTool]
+export const tools: Tool[] = [readTool, writeTool, editTool, bashTool, globTool, grepTool]
 
 /**
  * 把工具定义转成 OpenAI 兼容 API 的 `tools` 字段格式。
