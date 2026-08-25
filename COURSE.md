@@ -194,10 +194,14 @@ src/types.ts       # 改：ToolCall、tool role
   - 一次失败只是多花一个 step：tool loop 里模型自己爬出来
   - 对照 dsh 的两套写文件工具：`tool-fs` 与 `tool-str-replace-editor`
 
-- **4.2 bash：把整台机器交给模型**（未写）
-  - 一个工具顶十个：为什么有了 bash 还需要专门的 read/write
-  - 超时、输出截断、工作目录、退出码
-  - 危险性：`rm -rf` 谁来拦——阶段 15 权限系统的种子
+- **4.2 [bash：把整台机器交给模型](docs/04-tools/02-bash/01-bash.md)**
+  - 超时（为什么是 SIGKILL）、输出截断（为什么留末尾）、退出码（为什么非零不是异常）
+  - 每次都是新 shell：状态不保留，且必须写进 description
+  - 默认值要显式取：dsh 的 request → `resolve()` → spec
+  - 摘要归工具自己管：`presentResult` 的手工版
+  - 红 → 绿：跑测试 / 读代码 / 改代码 / 再跑测试，一个 turn 四个 step
+  - 一个工具顶十个？为什么有了 bash 还需要专门的 read/write
+  - **bash 一行绕过我们所有护栏**：`rm -rf` 谁来拦——4.4 和阶段 15 的种子
 
 - **4.3 grep 与 glob：找东西**（未写）
   - 用现成命令 vs 自己实现：一次"依赖优先"的判断
@@ -373,4 +377,4 @@ src/types.ts       # 改：ToolCall、tool role
 - [ ] 阶段 21：骨架对齐
 - [ ] 毕业设计
 
-> **下一步**：阶段 4 已细化并开讲（4.1 完成）。下一节 4.2：bash 工具。
+> **下一步**：阶段 4 进行中（4.1、4.2 完成）。下一节 4.3：grep 与 glob。

@@ -108,8 +108,9 @@ async function 跑一个turn(): Promise<void> {
     for (const call of 工具调用) {
       console.log(`\n  [工具] ${call.name}(${call.arguments})`)
       const 结果 = await 执行工具(call.name, call.arguments)
-      const 首行 = 结果.split('\n')[0] ?? ''
-      console.log(`         → ${首行.slice(0, 70)}${结果.length > 70 ? ' …' : ''}`)
+      // 摘要归工具自己管：通用的"取首行"对 bash 没用（首行可能是 `[stderr]`）。
+      const 一行 = tools.find(t => t.name === call.name)?.摘要?.(结果) ?? 结果.split('\n')[0] ?? ''
+      console.log(`         → ${一行.slice(0, 90)}${一行.length > 90 ? ' …' : ''}`)
       // tool_call_id 把结果和调用配对。少一条、或者 id 对不上，下一次请求就是非法的。
       messages.push({ role: 'tool', tool_call_id: call.id, content: 结果 })
     }

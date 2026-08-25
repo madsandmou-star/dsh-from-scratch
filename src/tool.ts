@@ -3,6 +3,7 @@
 // 一个工具是四样东西：名字、描述、参数格式、执行函数。
 // 前三样是给**模型**看的（会被塞进请求的 tools 字段），第四样是给我们自己跑的。
 
+import { spawn } from 'node:child_process'
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { resolve, relative, isAbsolute } from 'node:path'
@@ -24,6 +25,17 @@ export interface Tool {
    * @returns 给模型看的文本结果。不是给人看的，所以不要加颜色、进度条、装饰性排版。
    */
   execute(args: Record<string, unknown>): Promise<string>
+  /**
+   * 可选：把执行结果压成一行**给人看**的摘要。
+   *
+   * `execute` 的返回值是给模型的，通用的"取首行"规则对它未必合适——
+   * bash 就是反例：首行可能是 `[stderr]`，真正有用的是最后那几行。
+   * 谁最清楚自己的输出长什么样，谁就该负责它怎么显示。
+   * dsh 把这条做成了工具定义的一部分（`presentCall` / `presentResult`），阶段 12 讲。
+   * @param 结果 - `execute` 的返回值。
+   * @returns 一行摘要。
+   */
+  摘要?(结果: string): string
 }
 
 /** 工作目录：所有文件访问都被限制在它之内。 */
@@ -199,8 +211,169 @@ export const editTool: Tool = {
   },
 }
 
+/** 一条命令最多跑多久。超过就杀掉——模型不会自己发现"卡住了"。 */
+const 默认超时毫秒 = 30_000
+
+/** 一条命令的输出最多往上下文里塞多少字节。 */
+const 最大输出字节数 = 30_000
+
+/**
+ * 只保留末尾若干字节的输出收集器。
+ *
+ * 边收边裁，所以内存有上界：`yes` 这种命令一秒能产出几十 MB，
+ * 等收完再裁已经晚了。保留**末尾**而不是开头，因为命令的错误信息几乎总在最后。
+ */
+class 尾部收集器 {
+  private 文本 = ''
+  private 丢弃过 = false
+
+  /**
+   * 追加一块输出，超出上限时从头部丢弃。
+   * @param 块 - 子进程新产出的一段文本。
+   */
+  加(块: string): void {
+    this.文本 += 块
+    if (this.文本.length > 最大输出字节数) {
+      this.文本 = this.文本.slice(-最大输出字节数)
+      this.丢弃过 = true
+    }
+  }
+
+  /**
+   * 取出收集到的文本，并在截断过时附上明确说明。
+   * @returns 给模型看的这一路输出。
+   */
+  取(): string {
+    return this.丢弃过 ? `[前面的输出已被丢弃，只保留末尾 ${最大输出字节数} 字节]\n${this.文本}` : this.文本
+  }
+}
+
+/** 一次命令执行的结果。非零退出**不是异常**，是一个正常的结果值。 */
+interface 命令结果 {
+  stdout: string
+  stderr: string
+  退出码: number | null
+  信号: NodeJS.Signals | null
+  超时: boolean
+}
+
+/**
+ * 跑一条 bash 命令并收集它的输出。
+ *
+ * 每次调用都是**全新的 shell**：`cd`、变量、函数都不会留到下一次。
+ * 想换目录就用 workdir 参数——这是 dsh 的 bash 工具在描述里明确告诉模型的同一件事。
+ * @param 命令 - 交给 `bash -c` 的命令行。
+ * @param 工作路径 - 子进程的工作目录。
+ * @param 超时毫秒 - 超过这个时间就 SIGKILL。
+ * @returns 输出、退出码、以及是否因超时被杀。
+ */
+function 跑命令(命令: string, 工作路径: string, 超时毫秒: number): Promise<命令结果> {
+  return new Promise(完成 => {
+    const 子进程 = spawn('bash', ['-c', 命令], { cwd: 工作路径 })
+    const 标准输出 = new 尾部收集器()
+    const 标准错误 = new 尾部收集器()
+    let 超时 = false
+
+    子进程.stdout.setEncoding('utf8')
+    子进程.stderr.setEncoding('utf8')
+    子进程.stdout.on('data', (块: string) => { 标准输出.加(块) })
+    子进程.stderr.on('data', (块: string) => { 标准错误.加(块) })
+
+    // SIGKILL 而不是 SIGTERM：命令可以捕获 SIGTERM 然后赖着不走，
+    // 而超时的意义就是"无论如何都要停下"。代价是它没机会清理，这里接受这个代价。
+    const 定时器 = setTimeout(() => { 超时 = true; 子进程.kill('SIGKILL') }, 超时毫秒)
+
+    // 'close' 而不是 'exit'：exit 在进程退出时就触发，此时 stdout 可能还没读完。
+    // close 保证所有输出流都已经关闭——少了这一条，长输出的末尾会莫名其妙丢掉。
+    子进程.on('close', (退出码, 信号) => {
+      clearTimeout(定时器)
+      完成({ stdout: 标准输出.取(), stderr: 标准错误.取(), 退出码, 信号, 超时 })
+    })
+  })
+}
+
+/**
+ * 把一次执行结果拼成给模型看的文本。
+ *
+ * 关键决定：**非零退出码不抛异常**，而是作为标记附在输出末尾。
+ * `grep` 没找到东西就退 1，`test` 判假也退 1——这些都不是故障，是结果。
+ * 该怎么反应由模型决定，工具只负责如实报告（dsh 的 bash 工具是同一条规矩）。
+ * @param 结果 - 一次执行的完整结果。
+ * @param 超时毫秒 - 本次生效的超时值，用于写进超时标记。
+ * @returns stdout、标了记的 stderr、以及退出状态标记。
+ */
+function 组装输出(结果: 命令结果, 超时毫秒: number): string {
+  let 正文 = 结果.stdout
+  if (结果.stderr !== '') {
+    if (正文 !== '' && !正文.endsWith('\n')) 正文 += '\n'
+    // stderr 要标出来。混在一起模型分不清哪句是结果、哪句是警告。
+    正文 += `[stderr]\n${结果.stderr}`
+  }
+  if (正文 === '') 正文 = '(没有输出)'
+
+  const 标记: string[] = []
+  if (结果.超时) 标记.push(`[超时：跑满 ${超时毫秒}ms 后被杀掉]`)
+  if (结果.信号 !== null) 标记.push(`[被信号杀掉：${结果.信号}]`)
+  else if (结果.退出码 !== 0) 标记.push(`[退出码：${结果.退出码}]`)
+
+  if (标记.length === 0) return 正文
+  if (!正文.endsWith('\n')) 正文 += '\n'
+  return 正文 + 标记.join('\n')
+}
+
+/**
+ * 跑 bash 命令的工具。
+ *
+ * XXX(权限)：这个工具现在什么都拦不住——`rm -rf ~` 会照跑不误。
+ * 阶段 15 会加上审批，届时拦截点不在这个工具里，而在统一的执行前钩子上。
+ */
+export const bashTool: Tool = {
+  name: 'bash',
+  description: '执行一条 bash 命令（`bash -c`）并返回它的 stdout/stderr。'
+    + '每次调用都是**全新的 shell**：cd、变量、函数都不会留到下一次，要换目录请用 workdir 参数而不是 cd。'
+    + '非零退出会以 `[退出码：N]` 的形式报告。输出过长时只保留末尾。'
+    + '读文件请优先用 read（它带行号），改文件请优先用 edit——bash 用来跑那些没有专门工具的事：'
+    + '测试、构建、git、查进程。',
+  parameters: {
+    type: 'object',
+    properties: {
+      command: { type: 'string', description: '要执行的命令行' },
+      description: { type: 'string', description: '一句话说明这条命令要做什么，例如"跑单元测试"' },
+      workdir: { type: 'string', description: '可选：命令的工作目录，相对于当前工作目录' },
+      timeout_ms: { type: 'number', description: `可选：超时毫秒数，默认 ${默认超时毫秒}` },
+    },
+    required: ['command', 'description'],
+  },
+  async execute(args) {
+    const 命令 = 取字符串(args, 'command')
+    // description 是必填的，但工具本身不用它。要它是为了让模型**说出意图**：
+    // 阶段 15 的审批弹窗要拿它给用户看，而且被迫写一句话本身就会让模型少乱来。
+    取字符串(args, 'description')
+
+    const 工作路径 = args['workdir'] === undefined ? 工作目录 : 解析路径(取字符串(args, 'workdir'))
+
+    // 默认值在这里显式取，而不是藏在 跑命令() 里的 `?? 默认超时毫秒`。
+    // dsh 把这条做成了一条明规矩：resolve(request) → spec 是一步独立的解析，
+    // 调用方能看见最终生效的值是什么（`ShellExecRequest` → `ShellExecSpec`）。
+    const 超时原值 = args['timeout_ms']
+    if (超时原值 !== undefined && (typeof 超时原值 !== 'number' || !Number.isFinite(超时原值) || 超时原值 <= 0)) {
+      throw new Error(`参数 timeout_ms 必须是正数，实际收到：${JSON.stringify(超时原值)}`)
+    }
+    const 超时毫秒 = 超时原值 ?? 默认超时毫秒
+
+    return 组装输出(await 跑命令(命令, 工作路径, 超时毫秒), 超时毫秒)
+  },
+  摘要(结果) {
+    // 命令的结论在末尾：报错的最后一句、以及我们自己附的退出状态标记。
+    // `[stderr]` 是分节标题不是内容，滤掉。
+    const 行 = 结果.split('\n').filter(行 => 行.trim() !== '' && 行 !== '[stderr]')
+    const 末两行 = 行.slice(-2).join(' / ')
+    return 行.length > 2 ? `（共 ${行.length} 行）… ${末两行}` : 末两行
+  },
+}
+
 /** 本课程当前可用的工具。 */
-export const tools: Tool[] = [readTool, writeTool, editTool]
+export const tools: Tool[] = [readTool, writeTool, editTool, bashTool]
 
 /**
  * 把工具定义转成 OpenAI 兼容 API 的 `tools` 字段格式。
