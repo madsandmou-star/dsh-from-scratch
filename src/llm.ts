@@ -5,7 +5,7 @@
 
 import { parseSse } from './sse.ts'
 import { tools, 转成wire格式 } from './tool.ts'
-import type { Config } from './config.ts'
+import type { 生效配置 } from './config.ts'
 import type { Message, StreamChunk, StreamEvent, ToolCall } from './types.ts'
 
 /**
@@ -23,7 +23,7 @@ import type { Message, StreamChunk, StreamEvent, ToolCall } from './types.ts'
  */
 export async function* chatStream(
   messages: Message[],
-  config: Config & { apiKey: string },
+  config: 生效配置,
 ): AsyncGenerator<StreamEvent, void> {
   const response = await fetch(`${config.baseURL}/chat/completions`, {
     method: 'POST',

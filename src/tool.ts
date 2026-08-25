@@ -22,9 +22,11 @@ export interface Tool {
   /**
    * 执行工具。
    * @param args - 模型生成的参数，**已解析但未校验**——校验是每个工具自己的责任。
+   * @param signal - 取消信号（4.4 的统一超时、以及将来用户按下的中断）。
+   *   能被打断的工具**必须**观察它；纯计算的工具观察不了，这一点 4.3 的 ReDoS 已经证明过。
    * @returns 给模型看的文本结果。不是给人看的，所以不要加颜色、进度条、装饰性排版。
    */
-  execute(args: Record<string, unknown>): Promise<string>
+  execute(args: Record<string, unknown>, signal: AbortSignal): Promise<string>
   /**
    * 可选：把执行结果压成一行**给人看**的摘要。
    *
@@ -265,9 +267,10 @@ interface 命令结果 {
  * @param 命令 - 交给 `bash -c` 的命令行。
  * @param 工作路径 - 子进程的工作目录。
  * @param 超时毫秒 - 超过这个时间就 SIGKILL。
+ * @param signal - 外层护栏的取消信号；它一响，命令同样被 SIGKILL。
  * @returns 输出、退出码、以及是否因超时被杀。
  */
-function 跑命令(命令: string, 工作路径: string, 超时毫秒: number): Promise<命令结果> {
+function 跑命令(命令: string, 工作路径: string, 超时毫秒: number, signal: AbortSignal): Promise<命令结果> {
   return new Promise(完成 => {
     const 子进程 = spawn('bash', ['-c', 命令], { cwd: 工作路径 })
     const 标准输出 = new 尾部收集器()
@@ -283,10 +286,16 @@ function 跑命令(命令: string, 工作路径: string, 超时毫秒: number): 
     // 而超时的意义就是"无论如何都要停下"。代价是它没机会清理，这里接受这个代价。
     const 定时器 = setTimeout(() => { 超时 = true; 子进程.kill('SIGKILL') }, 超时毫秒)
 
+    // 外层还有一层护栏的超时（4.4）。它管的是"任何工具都不许卡住 agent"，
+    // 上面那个管的是"一条命令跑多久算久"——两层预算，两个问题，都要接。
+    const 被外层中止 = () => { 子进程.kill('SIGKILL') }
+    signal.addEventListener('abort', 被外层中止, { once: true })
+
     // 'close' 而不是 'exit'：exit 在进程退出时就触发，此时 stdout 可能还没读完。
     // close 保证所有输出流都已经关闭——少了这一条，长输出的末尾会莫名其妙丢掉。
     子进程.on('close', (退出码, 信号) => {
       clearTimeout(定时器)
+      signal.removeEventListener('abort', 被外层中止)
       完成({ stdout: 标准输出.取(), stderr: 标准错误.取(), 退出码, 信号, 超时 })
     })
   })
@@ -344,7 +353,7 @@ export const bashTool: Tool = {
     },
     required: ['command', 'description'],
   },
-  async execute(args) {
+  async execute(args, signal) {
     const 命令 = 取字符串(args, 'command')
     // description 是必填的，但工具本身不用它。要它是为了让模型**说出意图**：
     // 阶段 15 的审批弹窗要拿它给用户看，而且被迫写一句话本身就会让模型少乱来。
@@ -361,7 +370,7 @@ export const bashTool: Tool = {
     }
     const 超时毫秒 = 超时原值 ?? 默认超时毫秒
 
-    return 组装输出(await 跑命令(命令, 工作路径, 超时毫秒), 超时毫秒)
+    return 组装输出(await 跑命令(命令, 工作路径, 超时毫秒, signal), 超时毫秒)
   },
   摘要(结果) {
     // 命令的结论在末尾：报错的最后一句、以及我们自己附的退出状态标记。

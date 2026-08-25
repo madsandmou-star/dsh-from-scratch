@@ -247,6 +247,25 @@ setTimeout(() => console.log('【看门狗】3 秒到了，我醒了'), 3000)
 
 对着看我们上面那两个 bash 失败：`--regexp=<pattern>` 干掉了"pattern 被当成选项"，"没有 shell"干掉了注入。**这不是加了一层转义，是把整个解释器拿掉了。** 能不引入解释器就别引入——这条比"记得转义"可靠得多。
 
+> **"没有 shell"到底什么意思？dsh 不用 bash 吗？**
+>
+> 用。`bash` 工具就是 `bash -c`，而且**必须**是——模型写的本来就是 shell 代码，`ls | wc -l` 里的管道全靠它。
+>
+> 这里说的"有没有 shell"问的是另一件事：**模型给的那段文本，有没有被某个程序当成代码去解释。**
+>
+> 操作系统本身不认识"命令行"这种东西。内核的 `execve` 只接受两样：程序路径 + 一个**参数数组**（argv）。把 `grep -rn "foo" .` 这样一行字符串切成 argv、顺便展开 `$()` `*` `|` `>` 的，正是 shell。Python 里你多半见过同一件事：`subprocess.run(["rg", "--regexp=" + pattern])` 安全，`subprocess.run(f"rg '{pattern}'", shell=True)` 可注入。
+>
+> | 传给 spawn 的 | 谁来切 | `$(...)` 会执行吗 |
+> |---|---|---|
+> | `["rg", "--regexp=" + pattern]` | 没人切，直接 execve | 不会，它就是个普通字符串 |
+> | `["bash", "-c", "rg '" + pattern + "'"]` | bash 切 | 会 |
+>
+> dsh 的 subprocess 接缝在类型上就写死了这一点：`argv`: Executable and arguments; `argv[0]` is the program. **Never shell-interpreted here.**
+>
+> 关键的一点是：**即使要用 shell，传的仍然是 argv 数组**。dsh 的 bash 提供者写的是 `['bash', '-c', spec.command]`——整条命令是 argv 的第 3 个元素，原封不动交给 bash，**只被解释一次**。危险的从来不是 `spawn`，是"把不可信文本拼进一个还要交给 shell 的字符串"这个动作。
+>
+> 回头看本课那个注入演示：我们自己的 `bashTool` 内部用的也是 `spawn('bash', ['-c', 命令])`，已经是 argv 形式了。**注入不是它造成的**——是调用方把 pattern 拼进了那条要交给 bash 的命令。而真实场景里，那个调用方就是模型：它生成的 `command` 字段本身就是一整行 shell。所以只要"搜索"这件事经过 bash 工具，注入就躲不掉——**唯一的出路是让搜索根本不经过 shell，也就是给它一个自己的工具**。
+
 **② `include` 只准是一个正向 glob。** dsh 显式拒绝空串、拒绝 `!` 开头的取反、拒绝逗号分隔的列表，但**允许 `*.{ts,tsx}` 这种花括号选择**（因为那是一个 glob 的语法，不是列表）。
 
 这是「**在边界上校验，并且校验到位**」的一个很细的例子：不是"是不是字符串"这种廉价检查，而是"是不是**一个**正向 glob"这种真的对应语义的检查。模型写 `*.ts,*.tsx` 会立刻收到一句能照做的错，而不是一个静悄悄的空结果。

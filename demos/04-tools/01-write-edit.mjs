@@ -4,6 +4,7 @@
 import { mkdtemp, writeFile, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { 不取消 } from '../harness.mjs'
 
 const 工作目录 = await mkdtemp(join(tmpdir(), 'dsh-demo-'))
 process.chdir(工作目录)
@@ -13,7 +14,7 @@ const { writeTool, editTool } = await import('../../src/tool.ts')
 await writeFile('demo.ts', 'export function a() {\n  return 1\n}\n\nexport function b() {\n  return 1\n}\n', 'utf8')
 
 const 跑 = async (tool, args) => {
-  try { console.log(`✅ ${tool.name} → ${await tool.execute(args)}`) }
+  try { console.log(`✅ ${tool.name} → ${await tool.execute(args, 不取消)}`) }
   catch (错误) { console.log(`❌ ${tool.name} → ${错误.message}`) }
 }
 

@@ -4,11 +4,12 @@
 // 这个演示直接在课程仓库自己身上跑，因为它需要一棵真实的目录树。
 
 import { globTool, grepTool } from '../../src/tool.ts'
+import { 不取消 } from '../harness.mjs'
 
 const 跑 = async (tool, args, 标题) => {
   console.log(`\n── ${标题} ──`)
   try {
-    const 结果 = await tool.execute(args)
+    const 结果 = await tool.execute(args, 不取消)
     const 行 = 结果.split('\n')
     console.log(行.slice(0, 6).join('\n'))
     if (行.length > 6) console.log(`  …（共 ${行.length} 行）`)

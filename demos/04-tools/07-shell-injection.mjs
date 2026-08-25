@@ -5,6 +5,7 @@ import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { existsSync, rmSync } from 'node:fs'
+import { 不取消 } from '../harness.mjs'
 
 const 工作目录 = await mkdtemp(join(tmpdir(), 'dsh-demo-'))
 process.chdir(工作目录)
@@ -19,16 +20,16 @@ const 模型给的pattern = '$(touch 被注入了.txt)hello'
 
 清掉()
 console.log('① 走 bash：grep -rn "<pattern>" .')
-console.log('   ' + await bashTool.execute({ command: `grep -rn "${模型给的pattern}" .`, description: '搜索' }))
+console.log('   ' + await bashTool.execute({ command: `grep -rn "${模型给的pattern}" .`, description: '搜索' }, 不取消))
 报告()
 
 清掉()
 console.log('\n② 走 grep 工具（同一个 pattern）')
-console.log('   ' + await grepTool.execute({ pattern: 模型给的pattern }))
+console.log('   ' + await grepTool.execute({ pattern: 模型给的pattern }, 不取消))
 报告()
 
 console.log('\n③ pattern 以 - 开头，走 bash —— 它变成了命令行选项：')
-console.log('   ' + await bashTool.execute({ command: 'grep -rn "-abc" .', description: '搜索' }))
+console.log('   ' + await bashTool.execute({ command: 'grep -rn "-abc" .', description: '搜索' }, 不取消))
 console.log('④ 同一个 pattern，走 grep 工具：')
-console.log('   ' + await grepTool.execute({ pattern: '-abc' }))
+console.log('   ' + await grepTool.execute({ pattern: '-abc' }, 不取消))
 清掉()

@@ -2,5 +2,7 @@
   "baseURL": "https://api.deepseek.com/v1",
   "model": "deepseek-chat",
   "apiKeyEnv": "DEEPSEEK_API_KEY",
-  "systemPrompt": "You are a helpful assistant."
+  "systemPrompt": "You are a helpful assistant.",
+  "只读": false,
+  "记账": false
 }

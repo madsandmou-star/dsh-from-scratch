@@ -57,10 +57,11 @@ export function 启动假服务器(剧本, 最终回答, 看见) {
  * @param {{name: string, args: object}[]} 选项.剧本 - 模型依次要求调用的工具。
  * @param {string} 选项.最终回答 - 剧本走完后模型说的话。
  * @param {string} 选项.输入 - 喂给 CLI 的那句用户输入。
+ * @param {object} [选项.配置] - 额外的配置字段，合并进临时的 dsh-learn.json（例如 `{ 只读: true }`）。
  * @param {(内容: string) => void} [选项.看见] - 每收到一条 tool 结果就回调一次。
  * @returns {Promise<string>} 临时工作目录路径（调用方可以再检查文件内容）。
  */
-export async function 跑一次会话({ 文件 = {}, 剧本, 最终回答, 输入, 看见 }) {
+export async function 跑一次会话({ 文件 = {}, 剧本, 最终回答, 输入, 看见, 配置 = {} }) {
   const 工作目录 = await mkdtemp(join(tmpdir(), 'dsh-demo-'))
   for (const [相对路径, 内容] of Object.entries(文件)) {
     await mkdir(dirname(join(工作目录, 相对路径)), { recursive: true })
@@ -75,6 +76,7 @@ export async function 跑一次会话({ 文件 = {}, 剧本, 最终回答, 输�
     model: 'mock',
     apiKeyEnv: 'DSH_DEMO_KEY',
     systemPrompt: '你是一个帮忙改代码的助手。',
+    ...配置,
   }), 'utf8')
 
   await new Promise((完成, 失败) => {
@@ -103,3 +105,11 @@ export async function 跑一次会话({ 文件 = {}, 剧本, 最终回答, 输�
 export async function 清理(目录) {
   await rm(目录, { recursive: true, force: true })
 }
+
+/**
+ * 一个永远不会响的取消信号。
+ *
+ * 直接调 `tool.execute()` 的演示要用它——4.4 之后 `execute` 的第二个参数是必填的。
+ * 真实调用永远该走 `执行工具()`，由管线来发这个信号。
+ */
+export const 不取消 = new AbortController().signal

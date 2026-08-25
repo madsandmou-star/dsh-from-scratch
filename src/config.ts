@@ -16,6 +16,10 @@ export interface Config {
   apiKeyEnv: string
   /** 每次对话开头那条 system 消息的内容。 */
   systemPrompt: string
+  /** 只读模式：拒绝 write / edit / bash（4.4 的护栏）。默认关。 */
+  只读?: boolean
+  /** 把每次工具调用的耗时和输出大小打到 stderr（4.4 的护栏）。默认关。 */
+  记账?: boolean
 }
 
 // ESM 里没有 CommonJS 的 __dirname。取代它的是 import.meta.url：
@@ -28,12 +32,25 @@ const CONFIG_URL = process.env['DSH_LEARN_CONFIG'] === undefined
   : new URL(process.env['DSH_LEARN_CONFIG'], 'file:///')
 
 /**
+ * 解析之后的配置：可选项都已经填上默认值，密钥也已经从环境变量里取出来了。
+ *
+ * 这就是 4.2 讲的 request → spec 那一步：**文件里能写什么**（{@link Config}，可选项一堆）
+ * 和**运行时实际生效的是什么**（这里，全都必填）是两个类型，中间隔一次显式的解析。
+ */
+export interface 生效配置 extends Config {
+  /** 从 {@link Config.apiKeyEnv} 指定的环境变量里读出来的密钥。 */
+  apiKey: string
+  只读: boolean
+  记账: boolean
+}
+
+/**
  * 读取并校验配置，同时从环境变量取出密钥。
  * 任何一项缺失都在这里立刻报错——配置错误要在第一次请求之前就暴露，
  * 而不是等模型返回 401 时才让人去猜。
- * @returns 一次模型调用需要的全部连接事实。
+ * @returns 一次模型调用需要的全部连接事实，可选项已填默认值。
  */
-export function loadConfig(): Config & { apiKey: string } {
+export function loadConfig(): 生效配置 {
   let raw: string
   try {
     raw = readFileSync(CONFIG_URL, 'utf8')
@@ -67,5 +84,7 @@ export function loadConfig(): Config & { apiKey: string } {
   // 这样配置文件可以放心提交、放心贴给别人看，也不会在报错栈里被打印出来。
   // dsh 本体把这条规则做成了一个能力接缝：packages/credentials/ 里的凭据引用，
   // 以及 DeepSeek 适配器的 apiKeyEnv 字段（packages/llm/llm-deepseek/src/adapter.ts）。
-  return { ...config, apiKey }
+  // 这两个开关是**可选**的：老配置文件不写它们照样能用，缺省即关闭。
+  // 默认值在这里显式取出来，而不是留给每个用到它的地方各自 `?? false`（4.2 讲过为什么）。
+  return { ...config, apiKey, 只读: config.只读 ?? false, 记账: config.记账 ?? false }
 }

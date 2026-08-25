@@ -9,39 +9,16 @@
 import { createInterface } from 'node:readline/promises'
 import { loadConfig } from './config.ts'
 import { chatStream } from './llm.ts'
+import { 记账, 输出兜底, 只读模式 } from './guard.ts'
+import { 执行工具 } from './pipeline.ts'
 import { tools } from './tool.ts'
 import type { Message, ToolCall } from './types.ts'
 
 const config = loadConfig()
 
-/**
- * 按名字执行一个工具。
- *
- * 三类失败都在这里被转成**文本**而不是抛异常：找不到工具、参数不是合法 JSON、
- * 工具自己执行失败。原因在 3.4 讲——简单说：这些失败要喂回给模型，让它自己改正，
- * 而不是把整个 agent 打断。
- * @param 名字 - 模型要调用的工具名。
- * @param 参数JSON - 模型生成的参数文本，未经解析。
- * @returns 给模型看的执行结果或错误说明。
- */
-async function 执行工具(名字: string, 参数JSON: string): Promise<string> {
-  const tool = tools.find(t => t.name === 名字)
-  if (tool === undefined) return `错误：不存在名为 ${名字} 的工具。可用工具：${tools.map(t => t.name).join(', ')}`
-
-  let 参数: Record<string, unknown>
-  try {
-    参数 = JSON.parse(参数JSON) as Record<string, unknown>
-  } catch (error) {
-    // 模型生成的 JSON 可能不合法——这不是 bug，是它偶尔会犯的错。
-    return `错误：参数不是合法的 JSON（${error instanceof Error ? error.message : String(error)}）。收到的原文：${参数JSON}`
-  }
-
-  try {
-    return await tool.execute(参数)
-  } catch (error) {
-    return `错误：${error instanceof Error ? error.message : String(error)}`
-  }
-}
+// 这一次装配启用哪些护栏——顺序就是执行前钩子的求值顺序。
+// 换一套护栏不用改任何工具，也不用改这个循环：这就是 4.4 把它们抽出来的意义。
+const 护栏们 = [记账(config.记账), 只读模式(config.只读), 输出兜底()]
 
 // 模型本身是无状态的：它不记得上一次你说了什么。
 // 所谓"多轮对话"，就是每一轮都把**整个历史**重新发一遍。
@@ -107,7 +84,7 @@ async function 跑一个turn(): Promise<void> {
     // 执行这一轮的每个工具，结果作为 tool 消息喂回历史。
     for (const call of 工具调用) {
       console.log(`\n  [工具] ${call.name}(${call.arguments})`)
-      const 结果 = await 执行工具(call.name, call.arguments)
+      const 结果 = await 执行工具(call.name, call.arguments, 护栏们)
       // 摘要归工具自己管：通用的"取首行"对 bash 没用（首行可能是 `[stderr]`）。
       const 一行 = tools.find(t => t.name === call.name)?.摘要?.(结果) ?? 结果.split('\n')[0] ?? ''
       console.log(`         → ${一行.slice(0, 90)}${一行.length > 90 ? ' …' : ''}`)
