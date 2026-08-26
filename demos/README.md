@@ -32,3 +32,4 @@ npm run demo demos/04-tools/01-write-edit.mjs
 | `04-tools/08-redos.mjs` | 4.3 | 一个正则把进程同步卡死，连定时器都醒不过来（会一直跑，Ctrl-C 结束） |
 | `04-tools/09-pipeline.mjs` | 4.4 | 执行前拒绝、统一超时、执行后兜底、失败即拒绝 vs 失败即忽略 |
 | `04-tools/10-read-only.mjs` | 4.4 | 同一个 agent 同一段模型输出，只改一个配置开关 |
+| `04-tools/11-signal-fusion.mjs` | 4.4 | 换掉 signal 会把用户的取消挤掉；熔合之后谁先按都算 |
