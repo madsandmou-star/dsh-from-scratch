@@ -226,11 +226,37 @@ src/types.ts       # 改：ToolCall、tool role
 
 ### 阶段 5：system prompt 组装
 
-> **目标**：模型看到的第一屏是怎么拼出来的：身份、环境信息、工作区 AGENTS.md、工具 schema。
+> **目标**：模型看到的第一屏是怎么拼出来的——身份、persona、工具指引、以及每次都在变的环境信息。
 >
-> **产出**：可复现的 system prompt，改一个开关就能看出差异。
->
-> **对照**：`dsh/packages/core/system-prompt/`、`dsh/packages/context/`。
+> **产出**：一个 system prompt 注册表；装了什么就长什么样，改一个开关就能看出差异。
+
+#### 课程
+
+- **5.1 [system prompt 是拼出来的](docs/05-system-prompt/01-assembly/01-assembly.md)**
+  - 痛点复现：阶段 4 往工具描述里塞了三句本该属于 system prompt 的话
+  - 其中一句更糟——只读模式那句**只有被拒绝之后才说得出口**
+  - 注册表 + `order`：每个部件塞一段自己的话，按顺序拼起来
+  - 注册返回**注销函数**：这是 dsh 那条"注册即效果"的种子
+  - 重名直接抛错：配置错误要在第一次请求之前暴露
+
+- **5.2 变量与插值**（未写）
+  - `{{cwd}}`、`{{model}}`：为什么不引入模板引擎
+  - 未知变量是拼错了还是故意的——两种都要有明确行为
+  - 变量由谁提供：又一个注册表
+
+- **5.3 动态上下文不进 system prompt**（未写）
+  - 痛点：把"当前时间"塞进 system prompt，缓存全废，而且**它没落日志**
+  - dsh 的答案：`context` 不拼进 system prompt，而是变成一条 **user 消息快照**
+  - 去重：和上一次一样就不再发一条
+  - 这是「模型可见 ⟺ 已落日志」第一次真正被兑现
+
+- **5.4 谁能替换整个 prompt**（未写）
+  - `complete: true`：这一段就是全部
+  - 具名槽位（`deployment:persona`）：preset 覆盖它而不是再加一段
+  - 组装为什么是 waterfall
+
+- **5.5 阶段验收**（未写）
+  - 对照 `dsh/packages/core/system-prompt/`、`dsh/packages/context/`
 
 ### 阶段 6：会话落盘
 
@@ -386,4 +412,4 @@ src/types.ts       # 改：ToolCall、tool role
 - [ ] 阶段 21：骨架对齐
 - [ ] 毕业设计
 
-> **下一步**：阶段 4 完成。进入阶段 5 前，先把阶段 5 的小课在本文件里细化出来。
+> **下一步**：阶段 5 已细化并开讲（5.1 完成）。下一节 5.2：变量与插值。

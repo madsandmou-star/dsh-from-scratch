@@ -5,6 +5,7 @@
 
 import { spawn } from 'node:child_process'
 import { readFile, writeFile, mkdir, readdir, stat } from 'node:fs/promises'
+import type { 提示段 } from './system-prompt.ts'
 import { dirname } from 'node:path'
 import { resolve, relative, isAbsolute } from 'node:path'
 
@@ -110,8 +111,7 @@ export const readTool: Tool = {
 export const writeTool: Tool = {
   name: 'write',
   description: '把内容写入一个文件（覆盖已有内容，不存在则创建）。'
-    + '**覆盖会丢失原有内容**，所以修改已存在的文件时优先用 edit，只有创建新文件或整体重写时才用 write。'
-    + '路径相对于当前工作目录。',
+    + '**覆盖会丢失原有内容**。路径相对于当前工作目录。',
   parameters: {
     type: 'object',
     properties: {
@@ -340,9 +340,7 @@ export const bashTool: Tool = {
   name: 'bash',
   description: '执行一条 bash 命令（`bash -c`）并返回它的 stdout/stderr。'
     + '每次调用都是**全新的 shell**：cd、变量、函数都不会留到下一次，要换目录请用 workdir 参数而不是 cd。'
-    + '非零退出会以 `[退出码：N]` 的形式报告。输出过长时只保留末尾。'
-    + '读文件请优先用 read（它带行号），改文件请优先用 edit——bash 用来跑那些没有专门工具的事：'
-    + '测试、构建、git、查进程。',
+    + '非零退出会以 `[退出码：N]` 的形式报告。输出过长时只保留末尾。',
   parameters: {
     type: 'object',
     properties: {
@@ -459,7 +457,7 @@ export const globTool: Tool = {
   name: 'glob',
   description: '按文件名模式查找文件，返回相对路径列表，最近修改的排在前面。'
     + '支持 `**`（跨目录）、`*`（不跨目录）、`?`（单字符），例如 `src/**/*.ts`。'
-    + '自动跳过 node_modules、.git 等目录。想按**内容**找请用 grep。',
+    + '自动跳过 node_modules、.git 等目录。',
   parameters: {
     type: 'object',
     properties: {
@@ -503,7 +501,7 @@ export const grepTool: Tool = {
   name: 'grep',
   description: '按内容搜索文件，返回 `文件:行号: 内容` 形式的匹配行。'
     + 'pattern 是正则表达式。可以用 include 限定文件名，例如 `*.ts`。'
-    + '请用这个工具而不是 bash 里的 grep：它会跳过 node_modules、限制结果数量、并且不经过 shell。',
+    + '会跳过 node_modules 等目录，并限制结果数量。',
   parameters: {
     type: 'object',
     properties: {
@@ -550,6 +548,24 @@ export const grepTool: Tool = {
       ? `${结果行.join('\n')}\n\n[共 ${总匹配数} 处匹配，只显示前 ${最大结果数} 处。请把 pattern 或 include 写得更具体。]`
       : 结果行.join('\n')
   },
+}
+
+/**
+ * 工具之间该怎么选——这段话属于 system prompt，不属于任何一个工具的描述。
+ *
+ * 5.1 之前它散在 bash 和 grep 的 `description` 里，那有两个毛病：
+ * 一个工具的描述里提到另一个工具，等于把它们绑死了（删掉 grep，bash 的描述就在说谎）；
+ * 而且"该先用谁"这件事只有**看到全套工具的人**才说得清，单个工具没有这个视角。
+ */
+export const 工具指引段: 提示段 = {
+  名字: 'tools:guidance',
+  顺序: 100,
+  文本: '选工具的优先级：\n'
+    + '- 读文件用 read（它带行号），不要用 `cat`。\n'
+    + '- 改已有文件用 edit（唯一字面匹配），不要用 write 整体重写，也不要用 `sed`。\n'
+    + '- 按内容找代码用 grep，按文件名找用 glob，都不要用 bash 里的 grep/find——'
+    + '专门工具会跳过 node_modules、限制结果数量、并且不经过 shell。\n'
+    + '- bash 用来跑那些没有专门工具的事：测试、构建、git、查进程。',
 }
 
 /** 本课程当前可用的工具。 */

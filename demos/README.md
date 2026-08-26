@@ -33,3 +33,10 @@ npm run demo demos/04-tools/01-write-edit.mjs
 | `04-tools/09-pipeline.mjs` | 4.4 | 执行前拒绝、统一超时、执行后兜底、失败即拒绝 vs 失败即忽略 |
 | `04-tools/10-read-only.mjs` | 4.4 | 同一个 agent 同一段模型输出，只改一个配置开关 |
 | `04-tools/11-signal-fusion.mjs` | 4.4 | 换掉 signal 会把用户的取消挤掉；熔合之后谁先按都算 |
+
+## 阶段 5：system prompt 组装
+
+| 脚本 | 对应课 | 看什么 |
+|---|---|---|
+| `05-system-prompt/01-assembly.mjs` | 5.1 | 注册、排序、重名抛错、注销、条件性段落 |
+| `05-system-prompt/02-model-sees-it.mjs` | 5.1 | 只读模式那句话现在在模型**决定之前**就到了 |
