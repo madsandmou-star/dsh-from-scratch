@@ -11,6 +11,7 @@ Copy and fill. Language follows the learner's, with technical terms kept in thei
 ├── AGENTS.md         # the method applied to this course; the reference-source rules
 ├── docs/<NN>-<stage>/<NN>-<lesson>/<NN>-<topic>.md
 ├── scripts/          # a link + citation checker, so lessons cannot rot silently
+├── demos/            # one runnable script per situation shown in the prose, all keyless
 ├── src/              # teaching code, evolving in place across stages
 └── <ref>/            # the reference source, pinned read-only (submodule)
 ```
@@ -92,11 +93,24 @@ Copy and fill. Language follows the learner's, with technical terms kept in thei
 ## <The pain, or the concrete question>
 <Reproduce it. Name the files that must change, the value that gets lost, the number that grows.>
 
-## <Do it>
-<Commands and expected output first; then the code, pointing at the real file.>
+## The solution, whole
+<One sentence: what the solution is.>
 
-## <Name it>
-<The concept, now that the reader has seen it work.>
+<Before/after data-flow sketch — plain ASCII. Where it used to come from, where it comes from now.>
+
+### All of the code
+<The complete mechanism, tens of lines, readable in one screen. Not a fragment.>
+
+### Using it
+<The call site: how few lines it takes.>
+
+### What it produces
+<Real output, copied from the demo script.>
+
+<Then, and only then:>
+
+## <Detail 1: a choice made above, and why not the alternative>
+## <Detail 2: …>
 
 ## Teaching debug: <the move>
 <Which error line to read, what to log, where to breakpoint, how to prove it ran.>
@@ -143,6 +157,17 @@ Next: [<next lesson>](...)
 ## Next stage's pain
 <Concrete enough to itch. Name the fix the next stage brings, and what it costs.>
 ~~~
+
+## Demo script
+
+```js
+// N.M <the one situation this script shows>
+//   <exact command>
+
+// Self-contained: its own temp working directory, no trace left, no credentials.
+// Where the real system needs a paid service, drive a scripted fake so the output
+// is identical on every run.
+```
 
 ## Teaching code
 

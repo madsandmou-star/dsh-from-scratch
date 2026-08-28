@@ -48,10 +48,22 @@ A stage has a goal sentence, a runnable deliverable, three to six lessons, and a
 
 ## Anatomy of a lesson
 
-One file, one idea. Split past roughly 150 lines or at any clear topic change.
+One file, one idea. The split test is **topic singleness**, not length — a single argument running past two hundred lines is fine; two topics in eighty lines is not. When a lesson does split, `01-` keeps the main line and `02-`, `03-` carry the extracted deep dives, cross-linked both ways.
+
+**A lesson's spine is fixed: pain → whole solution → details.** After reproducing the pain, deliver the solution *as a whole* before arguing any part of it, in this order:
+
+1. **one sentence** naming what the solution is;
+2. **before/after data-flow sketch** — where the thing used to come from, where it comes from now;
+3. **the complete code, short enough to read in one screen** (tens of lines, not a fragment);
+4. **the call site** — how few lines it takes to use;
+5. **the output it produces.**
+
+Only then take the design apart choice by choice. Jumping from the pain straight into "field one, field two" is the single most common way a lesson becomes unreadable: the reader holds no whole, so no part has anywhere to attach. If the complete code will not fit on a screen, the lesson is carrying two topics — split it first.
 
 - **Do before naming.** Show what happens on screen, then name the concept behind it.
 - **Code is the textbook.** Every snippet in the prose has a real, openable, runnable file behind it. No orphan snippets.
+- **Every transcript in the prose comes from a committed demo script the learner can re-run** — one script per situation, self-contained, leaving no trace (its own temp working directory). Where the system needs a paid or credentialed service, ship a scripted fake of it: the course must replay with **no key and identical output**, because a transcript that differs on every run cannot be teaching material. Build that harness the first time a lesson needs it, then reuse it for the rest of the course.
+- **Deliberate holes get a marker.** Teaching code is knowingly incomplete. Every gap the lesson decides not to close yet carries a `XXX`/`TODO` in the code naming *why not now* and *where the real fix belongs* — that marker is the difference between a known hole and an unnoticed one, and it is itself a thing worth teaching.
 - **Teaching comments explain *what* and *why*.** This inverts the usual production rule, and is correct here: the reader may be seeing the syntax for the first time. Comments and code drift apart the moment you edit one without the other — don't.
 - **No homework.** Never "now implement X yourself". The reader's time goes into *understanding*, not being tested.
 - **Every lesson teaches one debug move**: which line of the error to read, what to log, where to breakpoint, how to prove the code even ran. A lesson that only shows the working answer has taught nothing about the day it stops working.
@@ -63,7 +75,13 @@ One file, one idea. Split past roughly 150 lines or at any clear topic change.
 - **Offer choices at design forks** (which order, how far to simplify, which analogy) instead of silently picking. Building the learner's own engineering judgment is part of the deliverable.
 - **Teach judgment, not vocabulary.** Assume a competent engineer who may be new to this stack: syntax gets explained as it appears, design decisions get argued.
 - **Let the learner battle the material.** Re-explaining one concept three ways — different analogy, different level, different language — is the method working, not a failure.
-- **Do not auto-commit.** Report what changed; the learner decides when it lands.
+- **Shipping the lesson file is half the delivery; teach it live too.** Writing prose and pushing code is not the lesson — deliver it in the conversation as well, in the same pain → whole → details order. A learner who has to open a file to find out what you taught was not taught.
+- **Every "I don't follow" is a defect in the lesson, not in the learner.** Answer it in plain language, then fold the answer back into the lesson file — and where the confusion is about a mechanism, add a runnable experiment that shows it failing and working side by side. Skipping the fold-back guarantees the next reader hits the same wall with no one there to ask.
+- **One lesson, one commit** — prose, teaching code, and demo scripts land together, with the checkers run first. A commit that changes code without its lesson has already split the textbook from the code. Follow the learner's stated preference on how much to do unprompted; when they ask you to keep going, keep going through the commit.
+
+## Keep this skill evolving
+
+Every method improvement discovered while teaching belongs **here**, not only in the current course's `AGENTS.md`. The course file is this skill *applied*; the skill is what survives to the next course. When a lesson goes wrong and you find the rule that would have prevented it — a missing structure, an anti-pattern, a review question — write the rule into this file in the same change that fixes the lesson. A skill that stays frozen while its author learns is a distillation of the first attempt only.
 
 ## Housekeeping that bites later
 
@@ -76,12 +94,15 @@ One file, one idea. Split past roughly 150 lines or at any clear topic change.
 ## Reviewing a lesson before it ships
 
 1. Does it open with a pain or a concrete question — or does it open with a definition?
-2. Can every snippet be opened as a file and run?
-3. Does it use any concept the reader has not met yet, without a one-line deferral?
-4. Does it teach one debug move?
-5. Are all cited source paths and symbol names verified against the current tree?
-6. Does the "why theirs is more complex" column say what the complexity bought?
-7. Would the reader be able to *predict* the next stage's pain?
+2. Does the whole solution — sentence, before/after, complete code, call site, output — arrive before the first design argument?
+3. Does every transcript come from a committed demo that replays with no credentials?
+4. Can every snippet be opened as a file and run?
+5. Does it use any concept the reader has not met yet, without a one-line deferral?
+6. Does it teach one debug move?
+7. Does every hole it leaves open carry a marker naming why and where the real fix goes?
+8. Are all cited source paths and symbol names verified against the current tree?
+9. Does the "why theirs is more complex" column say what the complexity bought?
+10. Would the reader be able to *predict* the next stage's pain?
 
 ## Anti-patterns
 
@@ -95,3 +116,7 @@ One file, one idea. Split past roughly 150 lines or at any clear topic change.
 | Only-the-right-answer lessons | The first real error becomes a wall |
 | Unverified source citations | One wrong path destroys trust in every other citation |
 | Overclaimed terminal goal | The course silently becomes unfinishable |
+| Pain, then straight into field-by-field detail | The reader holds no whole, so no detail has anywhere to attach |
+| Prose and code pushed, lesson never taught in the conversation | The learner has to reverse-engineer what you meant to say |
+| Treating "I don't understand" as the learner's problem | The defect stays in the file and hits every later reader |
+| Method lessons written only into the current course's rules | The next course starts over from the first draft |
