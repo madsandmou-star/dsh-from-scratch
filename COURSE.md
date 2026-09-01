@@ -263,8 +263,10 @@ src/types.ts       # 改：ToolCall、tool role
   - 两段都说"我是全部"就拒绝启动；debug 清单不许说谎
   - `完整` 与 `抑制上下文` 正交；对照 dsh 的作用域遮蔽与自动撤销
 
-- **5.5 阶段验收**（未写）
-  - 对照 `dsh/packages/core/system-prompt/`、`dsh/packages/context/`
+- **5.5 [阶段验收](docs/05-system-prompt/05-stage-review/01-stage-review.md)**
+  - 一条主线：五节课是同一个问题链上的四次分叉
+  - **为什么组装是 waterfall**：让"谁拥有事实"和"谁拥有位置"是两个互不认识的插件
+  - 工程思维：信息该放哪取决于它随谁生灭；认定一个权威来源，其余全部推导
 
 ### 阶段 6：会话落盘
 
@@ -401,7 +403,7 @@ src/types.ts       # 改：ToolCall、tool role
 - [x] 阶段 2：流式输出
 - [x] 阶段 3：工具循环
 - [x] 阶段 4：工具集与执行前后
-- [ ] 阶段 5：system prompt 组装
+- [x] 阶段 5：system prompt 组装
 - [ ] 阶段 6：会话落盘
 - [ ] 阶段 7：Cordis 插件与上下文
 - [ ] 阶段 8：服务与 inject
@@ -420,4 +422,4 @@ src/types.ts       # 改：ToolCall、tool role
 - [ ] 阶段 21：骨架对齐
 - [ ] 毕业设计
 
-> **下一步**：阶段 5 进行中（5.1—5.4 完成）。下一节 5.5：阶段验收。
+> **下一步**：阶段 5 完成。进入阶段 6 前，先把阶段 6 的小课在本文件里细化出来。
