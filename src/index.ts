@@ -24,6 +24,10 @@ const 护栏们 = [记账(config.记账), 只读模式(config.只读), 输出兜
 // system prompt 也是装配出来的（5.1）：每个部件塞一段自己的话，按 顺序 拼起来。
 // 注意这里没有一个地方"知道"最终的 prompt 长什么样——它是这几行的和。
 const 提示 = new 提示注册表()
+// 变量的取值函数在**每次组装**时才跑：cwd 会变（阶段 13 支持换目录），
+// 而且测试里换掉这个函数就能把它固定住，不用去 monkeypatch process。
+提示.变量('cwd', () => process.cwd())
+提示.变量('model', () => config.model)
 提示.注册(身份段)
 提示.注册({ 名字: 'deployment:persona', 顺序: 0, 文本: config.systemPrompt })
 提示.注册(工具指引段)

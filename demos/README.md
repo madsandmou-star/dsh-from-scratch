@@ -40,3 +40,5 @@ npm run demo demos/04-tools/01-write-edit.mjs
 |---|---|---|
 | `05-system-prompt/01-assembly.mjs` | 5.1 | 注册、排序、重名抛错、注销、条件性段落 |
 | `05-system-prompt/02-model-sees-it.mjs` | 5.1 | 只读模式那句话现在在模型**决定之前**就到了 |
+| `05-system-prompt/03-variables.mjs` | 5.2 | 插值的八种情况：三种错误、孤立的 `{{`、值不二次展开、取值时机 |
+| `05-system-prompt/04-variables-pain.mjs` | 5.2 | 每段自己取值 spawn 两次 git，注册成变量之后只取一次 |
