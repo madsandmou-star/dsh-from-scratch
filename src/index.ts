@@ -11,7 +11,7 @@ import { loadConfig } from './config.ts'
 import { chatStream } from './llm.ts'
 import { 记账, 输出兜底, 只读模式, 只读模式提示 } from './guard.ts'
 import { 执行工具 } from './pipeline.ts'
-import { 提示注册表, 快照已清空, 身份段 } from './system-prompt.ts'
+import { PERSONA段名, PERSONA顺序, 提示注册表, 快照已清空, 身份段 } from './system-prompt.ts'
 import { tools, 工具指引段 } from './tool.ts'
 import type { Message, ToolCall } from './types.ts'
 
@@ -29,7 +29,7 @@ const 提示 = new 提示注册表()
 提示.变量('cwd', () => process.cwd())
 提示.变量('model', () => config.model)
 提示.注册(身份段)
-提示.注册({ 名字: 'deployment:persona', 顺序: 0, 文本: config.systemPrompt })
+提示.注册({ 名字: PERSONA段名, 顺序: PERSONA顺序, 文本: config.systemPrompt })
 提示.注册(工具指引段)
 提示.注册(只读模式提示(config.只读))
 
@@ -44,7 +44,7 @@ const 提示 = new 提示注册表()
 // 最有用的一个 debug 开关：agent 行为不对时，先看它到底收到了什么 system prompt。
 if (process.env['DSH_SHOW_PROMPT'] !== undefined) {
   console.error('[system prompt 清单]')
-  for (const 项 of 提示.清单()) console.error(`  ${String(项.顺序).padStart(5)}  ${项.名字}  (${项.字符数} 字符)`)
+  for (const 项 of 提示.清单()) console.error(`  ${String(项.顺序).padStart(5)}  ${项.名字}  (${项.字符数} 字符)${项.生效 ? '' : '  ← 未生效'}`)
   console.error(`--- 拼出来的 system prompt（${提示.组装().length} 字符）---\n${提示.组装()}\n---`)
 }
 

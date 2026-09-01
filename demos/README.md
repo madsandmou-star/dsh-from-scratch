@@ -44,3 +44,4 @@ npm run demo demos/04-tools/01-write-edit.mjs
 | `05-system-prompt/04-variables-pain.mjs` | 5.2 | 每段自己取值 spawn 两次 git，注册成变量之后只取一次 |
 | `05-system-prompt/05-runtime-context.mjs` | 5.3 | 一个 turn 三次请求里，快照的位置和自我取代 |
 | `05-system-prompt/06-why-not-system-prompt.mjs` | 5.3 | 时间放进 system prompt 会打断多长的缓存前缀；去重与清空 |
+| `05-system-prompt/07-complete-and-slots.mjs` | 5.4 | 具名槽位替换、`完整` 只留一段、两段冲突、最小 subagent |

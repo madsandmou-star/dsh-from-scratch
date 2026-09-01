@@ -17,6 +17,13 @@ export interface 提示段 {
    */
   顺序: number
   /**
+   * 把这一段当作**完整的** system prompt：组装时其余段落全部丢掉。
+   *
+   * 组装过程本身照跑不误——变量要解析、动态上下文要拼、工具要排序——
+   * 只是最后那一步用这一段顶掉所有段落。同时有两段声明 `完整` 是配置错误。
+   */
+  完整?: boolean
+  /**
    * 段落文本，或者一个每次组装时求值的函数。
    *
    * 允许是函数，是因为有些段落的内容**取决于这次装配**——比如只读模式那段，
@@ -111,6 +118,7 @@ export class 提示注册表 {
   private readonly 段们 = new Map<string, 提示段>()
   private readonly 变量们 = new Map<string, () => string | undefined>()
   private readonly 上下文们 = new Map<string, 上下文段>()
+  private 上下文被抑制 = false
 
   /**
    * 注册一段。
@@ -173,11 +181,50 @@ export class 提示注册表 {
    */
   组装(): string {
     const 变量表 = this.取这次的变量()
-    return [...this.段们.values()]
-      .sort((甲, 乙) => 甲.顺序 - 乙.顺序)
+    const 按顺序 = [...this.段们.values()].sort((甲, 乙) => 甲.顺序 - 乙.顺序)
+
+    // 两段都说"我是全部"是配置错误：没有任何规则能决定听谁的。
+    const 完整的 = 按顺序.filter(段 => 段.完整 === true)
+    if (完整的.length > 1) {
+      throw new Error(`同时有多段声明了"完整"：${完整的.map(段 => 段.名字).join('、')}`)
+    }
+
+    // 注意变量照样插值：`完整` 换掉的是"哪些段进 prompt"，不是"要不要处理模板"。
+    const 只留一段 = 完整的[0]
+    if (只留一段 !== undefined) return this.渲染一段(只留一段, 变量表)
+
+    return 按顺序
       .map(段 => this.渲染一段(段, 变量表))
       .filter(文本 => 文本 !== '')
       .join('\n\n')
+  }
+
+  /**
+   * 覆盖一个已经注册过的同名段落。
+   *
+   * 和 {@link 注册} 的区别只在**意图**：`注册` 撞名字是配置错误（5.1 讲过为什么要抛错），
+   * `替换` 撞名字是本来就想干的事。两个动作用两个方法，读代码的人一眼看得出
+   * 这里是"我不知道有人占了"还是"我就是要换掉它"。
+   * @param 段 - 新的段落；名字必须已经存在。
+   * @returns 把原来那一段放回去的函数。
+   */
+  替换(段: 提示段): () => void {
+    const 原来的 = this.段们.get(段.名字)
+    if (原来的 === undefined) throw new Error(`没有名为 ${段.名字} 的段落可替换（要新增请用 注册）`)
+    this.段们.set(段.名字, 段)
+    return () => { this.段们.set(段.名字, 原来的) }
+  }
+
+  /**
+   * 让这次装配不发送任何动态上下文。
+   *
+   * 和 `完整` 是**两个正交的开关**：一个管 system prompt 里留什么，
+   * 一个管要不要发那条运行时快照。dsh 的 persona preset 把两者都暴露成配置项。
+   * @returns 恢复动态上下文的函数。
+   */
+  抑制上下文(): () => void {
+    this.上下文被抑制 = true
+    return () => { this.上下文被抑制 = false }
   }
 
   /**
@@ -199,6 +246,7 @@ export class 提示注册表 {
    * @returns 快照文本；一段都没有（或全为空）时返回空串。
    */
   组装上下文(): string {
+    if (this.上下文被抑制) return ''
     const 变量表 = this.取这次的变量()
     const 正文 = [...this.上下文们.values()]
       .sort((甲, 乙) => 甲.顺序 - 乙.顺序)
@@ -214,13 +262,35 @@ export class 提示注册表 {
    * 这是这一课最有用的 debug 手法：**agent 行为不对时，先看它到底收到了什么 system prompt**。
    * @returns 每一段的名字、顺序和字符数。
    */
-  清单(): { 名字: string, 顺序: number, 字符数: number }[] {
+  清单(): { 名字: string, 顺序: number, 字符数: number, 生效: boolean }[] {
     const 变量表 = this.取这次的变量()
-    return [...this.段们.values()]
-      .sort((甲, 乙) => 甲.顺序 - 乙.顺序)
-      .map(段 => ({ 名字: 段.名字, 顺序: 段.顺序, 字符数: this.渲染一段(段, 变量表).length }))
+    const 按顺序 = [...this.段们.values()].sort((甲, 乙) => 甲.顺序 - 乙.顺序)
+    // 有段落声明了"完整"时，其余段落**不会进 prompt**。清单必须如实反映这件事——
+    // 一个会说谎的 debug 工具比没有更糟。
+    const 完整的 = 按顺序.find(段 => 段.完整 === true)
+    return 按顺序.map((段) => {
+      const 文本 = this.渲染一段(段, 变量表)
+      return {
+        名字: 段.名字,
+        顺序: 段.顺序,
+        字符数: 文本.length,
+        生效: 完整的 === undefined ? 文本 !== '' : 段 === 完整的,
+      }
+    })
   }
 }
+
+/**
+ * 部署方 persona 的**具名槽位**。
+ *
+ * 它是一个导出的常量，而不是各处各写一遍字符串字面量——因为"换掉 persona"这件事
+ * 靠的就是**两边用同一个名字**。名字对不上，`替换()` 就变成了"又加了一段"，
+ * 于是模型会同时读到两个互相打架的人设。
+ */
+export const PERSONA段名 = 'deployment:persona'
+
+/** persona 槽位的顺序：模型读到的第一段实质内容。 */
+export const PERSONA顺序 = 0
 
 /** harness 自己的身份。它排在最前面，因为它是"你是谁"，其余都是"你该怎么干活"。 */
 export const 身份段: 提示段 = {

@@ -255,10 +255,13 @@ src/types.ts       # 改：ToolCall、tool role
   - 从"有"变成"没有"要显式说一声；去重不是优化是正确性
   - **我们留了个 bug**：记在旁边的变量会和真实历史对不上——dsh 从事件流推导
 
-- **5.4 谁能替换整个 prompt**（未写）
-  - `complete: true`：这一段就是全部
-  - 具名槽位（`deployment:persona`）：preset 覆盖它而不是再加一段
-  - 组装为什么是 waterfall
+- **5.4 [谁能替换整个 prompt](docs/05-system-prompt/04-complete/01-complete.md)**
+  - 痛点：subagent 不需要通用身份；preset 想换掉 persona 却只能"加"
+  - `替换()` 是另一个方法而不是 `force: true`——两种意图两个名字
+  - 具名槽位：导出的 `PERSONA段名` 常量才是"替换而不是重复"的关键
+  - `完整: true` 换掉的是哪些段进 prompt，不是要不要处理模板
+  - 两段都说"我是全部"就拒绝启动；debug 清单不许说谎
+  - `完整` 与 `抑制上下文` 正交；对照 dsh 的作用域遮蔽与自动撤销
 
 - **5.5 阶段验收**（未写）
   - 对照 `dsh/packages/core/system-prompt/`、`dsh/packages/context/`
@@ -417,4 +420,4 @@ src/types.ts       # 改：ToolCall、tool role
 - [ ] 阶段 21：骨架对齐
 - [ ] 毕业设计
 
-> **下一步**：阶段 5 进行中（5.1—5.3 完成）。下一节 5.4：谁能替换整个 prompt。
+> **下一步**：阶段 5 进行中（5.1—5.4 完成）。下一节 5.5：阶段验收。

@@ -15,7 +15,7 @@ const 注册变量 = 提示 => {
 const 画清单 = (标题, 注册表) => {
   console.log(`\n── ${标题} ──`)
   for (const 项 of 注册表.清单()) {
-    console.log(`  ${String(项.顺序).padStart(5)}  ${项.名字.padEnd(20)} ${项.字符数} 字符${项.字符数 === 0 ? '（空，会被丢掉）' : ''}`)
+    console.log(`  ${String(项.顺序).padStart(5)}  ${项.名字.padEnd(20)} ${项.字符数} 字符${项.生效 ? '' : '（不生效，会被丢掉）'}`)
   }
   console.log(`  → 拼出来共 ${注册表.组装().length} 字符`)
 }
