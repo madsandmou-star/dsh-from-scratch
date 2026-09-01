@@ -11,7 +11,7 @@ import { loadConfig } from './config.ts'
 import { chatStream } from './llm.ts'
 import { 记账, 输出兜底, 只读模式, 只读模式提示 } from './guard.ts'
 import { 执行工具 } from './pipeline.ts'
-import { 提示注册表, 身份段 } from './system-prompt.ts'
+import { 提示注册表, 快照已清空, 身份段 } from './system-prompt.ts'
 import { tools, 工具指引段 } from './tool.ts'
 import type { Message, ToolCall } from './types.ts'
 
@@ -32,6 +32,14 @@ const 提示 = new 提示注册表()
 提示.注册({ 名字: 'deployment:persona', 顺序: 0, 文本: config.systemPrompt })
 提示.注册(工具指引段)
 提示.注册(只读模式提示(config.只读))
+
+// 动态上下文（5.3）：每轮都可能变的事实。它们**不进 system prompt**——
+// 三个理由见 docs/05-system-prompt/03-runtime-context/。
+提示.上下文({
+  名字: 'time',
+  顺序: 0,
+  文本: () => `现在是 ${new Date().toISOString()}。`,
+})
 
 // 最有用的一个 debug 开关：agent 行为不对时，先看它到底收到了什么 system prompt。
 if (process.env['DSH_SHOW_PROMPT'] !== undefined) {
@@ -69,8 +77,33 @@ const 最大步数 = 10
  * 一个 **turn** = 从一条用户输入开始，到没有任何未了结的事为止。
  * 阶段 1 的每个 turn 只有一个 step；工具循环让"一个 turn 多个 step"第一次真的发生。
  */
+/**
+ * 上一次实际发出去的快照文本。
+ *
+ * `undefined` 表示"从来没发过"。用一个变量记这件事是**最朴素的做法**，
+ * 它的毛病在下面的回滚处理里会暴露；5.3 讲 dsh 为什么改成从会话日志里推导。
+ */
+let 上次发出的快照: string | undefined
+
+/**
+ * 如果这一轮的快照和上次发出去的不一样，就作为一条 user 消息追加进历史。
+ *
+ * 一样就什么都不做——**每轮重发一份一模一样的快照，是在白烧 token**，
+ * 而且会让模型以为"又有新情况了"。
+ */
+function 追加上下文快照(): void {
+  const 快照 = 提示.组装上下文()
+  if (快照 === (上次发出的快照 ?? '')) return
+  // 从"有"变成"没有"时要显式说一声。什么都不发的话，模型会继续拿旧快照当真。
+  const 要发的 = 快照 === '' ? 快照已清空 : 快照
+  messages.push({ role: 'user', content: 要发的 })
+  上次发出的快照 = 快照
+}
+
 async function 跑一个turn(): Promise<void> {
   for (let step = 1; step <= 最大步数; step++) {
+    // 快照在**每个 step 之前**重算：一个 turn 可能跑十分钟，时间早就变了。
+    追加上下文快照()
     process.stdout.write(`\n模型 > `)
     let 文本 = ''
     let 工具调用: ToolCall[] = []
@@ -134,6 +167,10 @@ for await (const line of rl) {
     // 3.5 会讲 dsh 为什么不这么做，以及它的办法是什么。
     console.error(`\n[本轮中断，已回滚] ${error instanceof Error ? error.message : String(error)}`)
     while (messages.length > 回滚点) messages.pop()
+    // 回滚把这轮追加的快照消息也弹掉了，但 上次发出的快照 这个变量还记着它。
+    // 不清掉的话，下一轮就不会重发——模型永远见不到那份上下文。
+    // **一个记在旁边的变量，会和真实历史对不上。** 5.3 讲 dsh 的解法。
+    上次发出的快照 = undefined
   }
   process.stdout.write('\n你 > ')
 }

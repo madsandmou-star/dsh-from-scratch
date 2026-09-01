@@ -25,6 +25,27 @@ export interface 提示段 {
   文本: string | (() => string)
 }
 
+/**
+ * 一段**动态上下文**：每一轮都可能变的事实（当前时间、git 状态、当前模式）。
+ *
+ * 它和 {@link 提示段} 的区别不在内容，在**去向**：提示段拼进 system prompt，
+ * 上下文段拼成一条 user 消息追加在这一步的末尾。5.3 讲为什么必须分开。
+ */
+export interface 上下文段 {
+  /** 唯一名字，重名抛错。 */
+  名字: string
+  /** 拼接顺序，从小到大。 */
+  顺序: number
+  /** 文本或每次组装时求值的函数；求值为空串表示这一轮它没有话要说。 */
+  文本: string | (() => string)
+}
+
+/** 快照非空时的开头。它告诉模型：**旧的那份不算数了**。 */
+const 快照开头 = '当前运行时上下文。这份快照取代之前所有的运行时上下文快照。'
+
+/** 快照从有到无时发的话。不能什么都不发——那样模型会以为旧快照还有效。 */
+export const 快照已清空 = '当前运行时上下文：没有。之前的运行时上下文快照都不再适用。'
+
 /** 变量名的写法：小写字母开头，后面是小写字母、数字、下划线。 */
 const 变量名规则 = /^[a-z][a-z0-9_]*$/
 
@@ -89,6 +110,7 @@ function 插值(段名: string, 文本: string, 变量们: Map<string, string | 
 export class 提示注册表 {
   private readonly 段们 = new Map<string, 提示段>()
   private readonly 变量们 = new Map<string, () => string | undefined>()
+  private readonly 上下文们 = new Map<string, 上下文段>()
 
   /**
    * 注册一段。
@@ -156,6 +178,34 @@ export class 提示注册表 {
       .map(段 => this.渲染一段(段, 变量表))
       .filter(文本 => 文本 !== '')
       .join('\n\n')
+  }
+
+  /**
+   * 注册一段动态上下文。
+   * @param 段 - 要注册的上下文段。
+   * @returns 注销这一段的函数。
+   */
+  上下文(段: 上下文段): () => void {
+    if (this.上下文们.has(段.名字)) throw new Error(`上下文段落重名：${段.名字}`)
+    this.上下文们.set(段.名字, 段)
+    return () => { this.上下文们.delete(段.名字) }
+  }
+
+  /**
+   * 把所有动态上下文拼成这一轮的快照。
+   *
+   * 和 {@link 组装} 共用同一份变量快照，所以 system prompt 和上下文里的
+   * `{{cwd}}` 一定是同一个值。
+   * @returns 快照文本；一段都没有（或全为空）时返回空串。
+   */
+  组装上下文(): string {
+    const 变量表 = this.取这次的变量()
+    const 正文 = [...this.上下文们.values()]
+      .sort((甲, 乙) => 甲.顺序 - 乙.顺序)
+      .map(段 => 插值(段.名字, (typeof 段.文本 === 'string' ? 段.文本 : 段.文本()).trim(), 变量表))
+      .filter(文本 => 文本 !== '')
+      .join('\n\n')
+    return 正文 === '' ? '' : `${快照开头}\n\n${正文}`
   }
 
   /**

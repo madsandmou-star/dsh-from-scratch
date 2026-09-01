@@ -18,9 +18,10 @@ const 课程根目录 = resolve(dirname(fileURLToPath(import.meta.url)), '..')
  * @param {string} 最终回答 - 剧本走完后模型说的话。
  * @param {(内容: string) => void} [看见] - 每收到一条 tool 结果就回调一次。
  * @param {(内容: string) => void} [看见系统提示] - 第一次请求时回调一次，参数是模型收到的 system prompt。
+ * @param {(消息们: object[]) => void} [看见每次请求] - 每收到一次请求回调一次，参数是完整的 messages 数组。
  * @returns {Promise<{端口: number, 关掉: () => Promise<void>}>}
  */
-export function 启动假服务器(剧本, 最终回答, 看见, 看见系统提示) {
+export function 启动假服务器(剧本, 最终回答, 看见, 看见系统提示, 看见每次请求) {
   let 报过系统提示 = false
   let 第几轮 = 0
   const 服务器 = createServer(async (req, res) => {
@@ -31,6 +32,7 @@ export function 启动假服务器(剧本, 最终回答, 看见, 看见系统提
       报过系统提示 = true
       看见系统提示(消息们[0].content)
     }
+    if (看见每次请求 !== undefined) 看见每次请求(消息们)
     const 最后一条 = 消息们.at(-1)
     if (最后一条.role === 'tool' && 看见 !== undefined) 看见(最后一条.content)
 
@@ -67,16 +69,17 @@ export function 启动假服务器(剧本, 最终回答, 看见, 看见系统提
  * @param {object} [选项.配置] - 额外的配置字段，合并进临时的 dsh-learn.json（例如 `{ 只读: true }`）。
  * @param {(内容: string) => void} [选项.看见] - 每收到一条 tool 结果就回调一次。
  * @param {(内容: string) => void} [选项.看见系统提示] - 回调一次模型收到的 system prompt。
+ * @param {(消息们: object[]) => void} [选项.看见每次请求] - 每次请求回调一次，参数是完整的 messages。
  * @returns {Promise<string>} 临时工作目录路径（调用方可以再检查文件内容）。
  */
-export async function 跑一次会话({ 文件 = {}, 剧本, 最终回答, 输入, 看见, 看见系统提示, 配置 = {} }) {
+export async function 跑一次会话({ 文件 = {}, 剧本, 最终回答, 输入, 看见, 看见系统提示, 看见每次请求, 配置 = {} }) {
   const 工作目录 = await mkdtemp(join(tmpdir(), 'dsh-demo-'))
   for (const [相对路径, 内容] of Object.entries(文件)) {
     await mkdir(dirname(join(工作目录, 相对路径)), { recursive: true })
     await writeFile(join(工作目录, 相对路径), 内容, 'utf8')
   }
 
-  const { 端口, 关掉 } = await 启动假服务器(剧本, 最终回答, 看见, 看见系统提示)
+  const { 端口, 关掉 } = await 启动假服务器(剧本, 最终回答, 看见, 看见系统提示, 看见每次请求)
   // 密钥必须是 ASCII：HTTP 头是 ByteString，塞中文会在发请求时炸掉。
   const 配置路径 = join(工作目录, '.dsh-learn-demo.json')
   await writeFile(配置路径, JSON.stringify({

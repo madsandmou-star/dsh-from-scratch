@@ -248,11 +248,12 @@ src/types.ts       # 改：ToolCall、tool role
   - 取值发生在组装时；同一次组装共用一份快照
   - 对照 dsh：为什么它的 `variables` 是普通对象，以及那必须写的 `Object.hasOwn`
 
-- **5.3 动态上下文不进 system prompt**（未写）
-  - 痛点：把"当前时间"塞进 system prompt，缓存全废，而且**它没落日志**
-  - dsh 的答案：`context` 不拼进 system prompt，而是变成一条 **user 消息快照**
-  - 去重：和上一次一样就不再发一条
-  - 这是「模型可见 ⟺ 已落日志」第一次真正被兑现
+- **5.3 [动态上下文不进 system prompt](docs/05-system-prompt/03-runtime-context/01-runtime-context.md)**
+  - 痛点三连：打断缓存前缀、最新的事实待在最老的位置、**它没落日志**
+  - 解法：拼成一条 user 消息追加在这一步末尾，开头写明"取代之前的快照"
+  - 为什么只能是 user role；dsh 怎么在日志里记住"这其实是插件生成的"
+  - 从"有"变成"没有"要显式说一声；去重不是优化是正确性
+  - **我们留了个 bug**：记在旁边的变量会和真实历史对不上——dsh 从事件流推导
 
 - **5.4 谁能替换整个 prompt**（未写）
   - `complete: true`：这一段就是全部
@@ -416,4 +417,4 @@ src/types.ts       # 改：ToolCall、tool role
 - [ ] 阶段 21：骨架对齐
 - [ ] 毕业设计
 
-> **下一步**：阶段 5 进行中（5.1、5.2 完成）。下一节 5.3：动态上下文不进 system prompt。
+> **下一步**：阶段 5 进行中（5.1—5.3 完成）。下一节 5.4：谁能替换整个 prompt。

@@ -42,3 +42,5 @@ npm run demo demos/04-tools/01-write-edit.mjs
 | `05-system-prompt/02-model-sees-it.mjs` | 5.1 | 只读模式那句话现在在模型**决定之前**就到了 |
 | `05-system-prompt/03-variables.mjs` | 5.2 | 插值的八种情况：三种错误、孤立的 `{{`、值不二次展开、取值时机 |
 | `05-system-prompt/04-variables-pain.mjs` | 5.2 | 每段自己取值 spawn 两次 git，注册成变量之后只取一次 |
+| `05-system-prompt/05-runtime-context.mjs` | 5.3 | 一个 turn 三次请求里，快照的位置和自我取代 |
+| `05-system-prompt/06-why-not-system-prompt.mjs` | 5.3 | 时间放进 system prompt 会打断多长的缓存前缀；去重与清空 |
