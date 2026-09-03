@@ -4,8 +4,8 @@
 // 这一个改动会一路传染到调用方——见 index.ts。
 
 import { parseSse } from './sse.ts'
-import { tools, 转成wire格式 } from './tool.ts'
-import type { 生效配置 } from './config.ts'
+import { tools, toWireTools } from './tool.ts'
+import type { ResolvedConfig } from './config.ts'
 import type { Message, StreamChunk, StreamEvent, ToolCall } from './types.ts'
 
 /**
@@ -23,7 +23,7 @@ import type { Message, StreamChunk, StreamEvent, ToolCall } from './types.ts'
  */
 export async function* chatStream(
   messages: Message[],
-  config: 生效配置,
+  config: ResolvedConfig,
 ): AsyncGenerator<StreamEvent, void> {
   const response = await fetch(`${config.baseURL}/chat/completions`, {
     method: 'POST',
@@ -32,7 +32,7 @@ export async function* chatStream(
       authorization: `Bearer ${config.apiKey}`,
     },
     // 3.1 撞墙时发现的问题在这里补上：不告诉模型有哪些工具，它永远不会调用工具。
-    body: JSON.stringify({ model: config.model, messages, stream: true, tools: 转成wire格式(tools) }),
+    body: JSON.stringify({ model: config.model, messages, stream: true, tools: toWireTools(tools) }),
   })
 
   if (!response.ok) {
@@ -41,28 +41,28 @@ export async function* chatStream(
   }
   if (response.body === null) throw new Error('响应没有 body，无法读流')
 
-  let 见过DONE = false
+  let sawDone = false
 
   // 工具调用是**按 index 分组的增量**：`id` 和 `name` 只在每组的第一块出现，
   // 后续碎片只有 index 和一截 arguments 文本。所以要按 index 攒。
   // 用 Map 而不是数组：index 不保证从 0 开始，也不保证连续。
-  const 攒着的工具 = new Map<number, { id: string, name: string, args: string }>()
+  const pendingCalls = new Map<number, { id: string, name: string, args: string }>()
 
   for await (const payload of parseSse(response.body)) {
     // [DONE] 是 OpenAI 协议的收尾标记，不是一条内容。见到它就结束。
-    if (payload === '[DONE]') { 见过DONE = true; break }
+    if (payload === '[DONE]') { sawDone = true; break }
 
     const chunk = JSON.parse(payload) as StreamChunk
     const choice = chunk.choices[0]
 
-    for (const 增量 of choice?.delta.tool_calls ?? []) {
-      const 已有 = 攒着的工具.get(增量.index) ?? { id: '', name: '', args: '' }
-      攒着的工具.set(增量.index, {
+    for (const delta of choice?.delta.tool_calls ?? []) {
+      const prev = pendingCalls.get(delta.index) ?? { id: '', name: '', args: '' }
+      pendingCalls.set(delta.index, {
         // id / name 只在第一块出现，后续块里是 undefined —— 不能直接覆盖，否则第一块的值会被冲掉。
-        id: 增量.id ?? 已有.id,
-        name: 增量.function?.name ?? 已有.name,
+        id: delta.id ?? prev.id,
+        name: delta.function?.name ?? prev.name,
         // arguments 是唯一需要拼接的字段。
-        args: 已有.args + (增量.function?.arguments ?? ''),
+        args: prev.args + (delta.function?.arguments ?? ''),
       })
     }
 
@@ -75,14 +75,14 @@ export async function* chatStream(
   // 此时已经 yield 出去的那些增量是真实到达的，但整段回复是残缺的，
   // 调用方必须知道这件事——所以这里抛错，而不是安静地正常返回。
   // dsh 在 packages/llm/llm-deepseek/src/sse.ts 里做同样的判断，错误码是 STREAM_CLOSED。
-  if (!见过DONE) throw new Error('流在收到 [DONE] 之前就结束了：这次回复不完整，不可信')
+  if (!sawDone) throw new Error('流在收到 [DONE] 之前就结束了：这次回复不完整，不可信')
 
   // 到这里流已经完整结束了，攒着的工具调用才算收全。
   // **不能用"arguments 能否 JSON.parse 成功"来判断收全**：`{}` 是合法 JSON，
   // 而它完全可能只是 `{"path": "x"}` 的一个前缀状态；反过来也不知道后面还有没有第三个工具要来。
   // 唯一可靠的信号是协议给的——流结束了。
-  if (攒着的工具.size > 0) {
-    const calls: ToolCall[] = [...攒着的工具.entries()]
+  if (pendingCalls.size > 0) {
+    const calls: ToolCall[] = [...pendingCalls.entries()]
       .sort(([a], [b]) => a - b)      // 按 index 排序，让调用顺序稳定可复现
       .map(([, call]) => ({ id: call.id, name: call.name, arguments: call.args }))
     yield { type: 'tool-calls', calls }

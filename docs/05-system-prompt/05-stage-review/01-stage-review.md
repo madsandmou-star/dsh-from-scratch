@@ -7,11 +7,11 @@
 ```sh
 # ① 看模型到底收到了什么
 DSH_SHOW_PROMPT=1 npm run dev
-# [system prompt 清单]
-#    -100  harness:identity  (118 字符)
-#       0  deployment:persona  (28 字符)
-#     100  tools:guidance  (214 字符)
-#     110  guard:read-only  (0 字符)  ← 未生效
+# [system prompt inventory]
+#    -100  harness:identity  (118 ch)
+#       0  deployment:persona  (28 ch)
+#     100  tools:guidance  (214 ch)
+#     110  guard:read-only  (0 ch)  ← 未生效
 
 # ② 注册表的五种情况
 npm run demo demos/05-system-prompt/01-assembly.mjs
@@ -36,7 +36,7 @@ npm run demo demos/05-system-prompt/06-why-not-system-prompt.mjs
 
 # ⑦ 具名槽位与完整 prompt
 npm run demo demos/05-system-prompt/07-complete-and-slots.mjs
-# ❌ 同时有多段声明了"完整"：deployment:persona、tools:guidance
+# ❌ 同时有多段声明了"complete"：deployment:persona、tools:guidance
 
 # ⑧⑨
 npm run typecheck && npm run check
@@ -56,11 +56,11 @@ npm run typecheck && npm run check
 ## 本阶段产出
 
 ```
-src/system-prompt.ts   # 新增：302 行——注册表 + 变量 + 插值 + 动态上下文 + 槽位
-src/tool.ts            # 改：工具描述瘦身，多出一个 工具指引段
+src/system-prompt.ts   # 新增：302 line——registry + variable + interpolate + 动态上下文 + 槽位
+src/tool.ts            # 改：工具描述瘦身，多出一个 toolGuidanceSection
 src/guard.ts           # 改：只读模式多出一个提示段
 src/config.ts          # 改：DSH_LEARN_CONFIG（5.2 演示要用）
-src/index.ts           # 改：装配注册表、注册变量、每步追加上下文快照
+src/index.ts           # 改：装配注册表、registerVariables、每步追加上下文快照
 demos/05-system-prompt/ # 新增：七个演示
 ```
 
@@ -75,13 +75,13 @@ demos/05-system-prompt/ # 新增：七个演示
 | 5.1 | 一句话该归谁 | 描述回答"这个工具是什么"，system prompt 回答"这套装配下该怎么干活" |
 | 5.2 | 值只有运行时才知道 | 段落退回纯文本，值注册成变量，组装时统一替换 |
 | 5.3 | 值**每轮都在变** | 那它就不该在 system prompt 里，改成会自我取代的 user 消息 |
-| 5.4 | 有人想换掉整段，甚至换掉全部 | 具名槽位 + `完整` 标记 |
+| 5.4 | 有人想换掉整段，甚至换掉全部 | 具名槽位 + `complete` 标记 |
 
 **五节课的顺序不是随便排的，是同一条问题链上的四次分叉。** 每一次都是先发现"现在这个位置放不下这句话"，再造一个能放下它的位置。
 
 ## 为什么组装是 waterfall
 
-我们的 `组装()` 是一个函数：进去是注册表，出来是字符串，中间没有第三方插手的余地。
+我们的 `assemble()` 是一个函数：进去是注册表，出来是字符串，中间没有第三方插手的余地。
 
 dsh 的组装最后一步是一个 waterfall 事件：
 
@@ -167,7 +167,7 @@ const disposeRequest = agentCtx.on('agent/request', ...)   // 发请求时用同
 
 ### 4. 认定一个权威来源，其余全部推导
 
-5.3 那个 `上次发出的快照` 变量是这条的反面教材：它和 `messages` 数组说的是同一件事，于是必然会有对不上的那一天（回滚就是）。
+5.3 那个 `lastSentSnapshot` 变量是这条的反面教材：它和 `messages` 数组说的是同一件事，于是必然会有对不上的那一天（回滚就是）。
 
 dsh 从 `session/event` 推导它。**一份记在旁边的状态，迟早会和真相对不上。**
 
@@ -175,7 +175,7 @@ dsh 从 `session/event` 推导它。**一份记在旁边的状态，迟早会和
 
 ### 5. 两种意图，两个名字
 
-5.4 的 `注册` vs `替换`：同一个动作，一个是"我不知道有人占了"，一个是"我就是要换掉它"。
+5.4 的 `register` vs `replace`：同一个动作，一个是"我不知道有人占了"，一个是"我就是要换掉它"。
 
 **当一个 API 的行为取决于调用者知不知道自己在做什么时，拆成两个名字，而不是加一个 `force` 参数。**
 
@@ -186,7 +186,7 @@ dsh 从 `session/event` 推导它。**一份记在旁边的状态，迟早会和
 | **5.1** | 一句话该归工具描述还是 system prompt；为什么重名要抛错；为什么 order 用带间隔的数字；提示和护栏的分工 |
 | **5.2** | 为什么段落必须能是纯文本；插值为什么不用一行正则；未注册和没取到值为什么是两种错；替换值为什么不能再扫描 |
 | **5.3** | 动态上下文不进 system prompt 的三条理由；为什么只能是 user role；"取代之前的"和"已清空"各自在防什么 |
-| **5.4** | 具名槽位为什么靠导出常量；`完整` 换掉的是什么、没换掉什么；为什么两段冲突要拒绝启动 |
+| **5.4** | 具名槽位为什么靠导出常量；`complete` 换掉的是什么、没换掉什么；为什么两段冲突要拒绝启动 |
 | **5.5** | waterfall 让"谁拥有事实"和"谁拥有位置"可以是两个互不认识的插件 |
 
 ## 下一阶段的痛点预告
@@ -197,7 +197,7 @@ dsh 从 `session/event` 推导它。**一份记在旁边的状态，迟早会和
 
 这只是最表面的一层。真正的问题在这一阶段里已经露头三次了：
 
-**① 5.3 那个变量。** `上次发出的快照` 和 `messages` 数组说的是同一件事，回滚时它们对不上。我打了个补丁，但补丁只堵住了我知道的那个洞。
+**① 5.3 那个变量。** `lastSentSnapshot` 和 `messages` 数组说的是同一件事，回滚时它们对不上。我打了个补丁，但补丁只堵住了我知道的那个洞。
 
 **② 5.3 那条"它没落日志"。** 「模型可见 ⟺ 已落日志」这条规矩，我们到现在**一次都没兑现过**——`messages` 是一个内存数组，进程一死就没了，更谈不上"重建当时模型看到了什么"。
 

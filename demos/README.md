@@ -15,7 +15,7 @@ npm run demo demos/04-tools/01-write-edit.mjs
 ## 约定
 
 - **每个演示自带一个临时工作目录**，跑完不留痕迹；不会碰你的仓库。少数需要一棵真实目录树的演示（例如 `06-search.mjs`）在课程仓库自己身上跑，但**只读**。
-- 需要跑完整会话的演示走 `harness.mjs` 的 `跑一次会话()`：它起一个假模型服务器、写一份临时配置、用临时目录当工作目录把 `src/index.ts` 跑起来。
+- 需要跑完整会话的演示走 `harness.mjs` 的 `runSession()`：它起一个假模型服务器、写一份临时配置、用临时目录当工作目录把 `src/index.ts` 跑起来。
 - 演示脚本是 `.mjs` 而不是 `.ts`，这样它们既能被 `tsx` 跑，也能直接被 `node` 跑（除非要 import `src/*.ts`）。
 
 ## 阶段 4：工具集
@@ -44,4 +44,4 @@ npm run demo demos/04-tools/01-write-edit.mjs
 | `05-system-prompt/04-variables-pain.mjs` | 5.2 | 每段自己取值 spawn 两次 git，注册成变量之后只取一次 |
 | `05-system-prompt/05-runtime-context.mjs` | 5.3 | 一个 turn 三次请求里，快照的位置和自我取代 |
 | `05-system-prompt/06-why-not-system-prompt.mjs` | 5.3 | 时间放进 system prompt 会打断多长的缓存前缀；去重与清空 |
-| `05-system-prompt/07-complete-and-slots.mjs` | 5.4 | 具名槽位替换、`完整` 只留一段、两段冲突、最小 subagent |
+| `05-system-prompt/07-complete-and-slots.mjs` | 5.4 | 具名槽位替换、`complete` 只留一段、两段冲突、最小 subagent |

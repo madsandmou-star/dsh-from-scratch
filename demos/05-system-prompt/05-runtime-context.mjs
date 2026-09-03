@@ -1,27 +1,27 @@
 // 5.3 动态上下文走 user 消息，不进 system prompt：位置、去重、取代语义。
 //   node demos/05-system-prompt/05-runtime-context.mjs
 
-import { 跑一次会话, 清理 } from '../harness.mjs'
+import { runSession, cleanup } from '../harness.mjs'
 
-const 每次请求 = []
-const 工作目录 = await 跑一次会话({
-  文件: { 'a.txt': 'hello\n', 'b.txt': 'world\n' },
-  剧本: [
+const requests = []
+const workdir = await runSession({
+  files: { 'a.txt': 'hello\n', 'b.txt': 'world\n' },
+  script: [
     { name: 'read', args: { path: 'a.txt' } },
     { name: 'read', args: { path: 'b.txt' } },
   ],
-  最终回答: '两个文件都读完了。',
-  输入: '读一下 a.txt 和 b.txt',
-  看见每次请求: 消息们 => 每次请求.push(消息们),
+  finalAnswer: '两个文件都读完了。',
+  input: '读一下 a.txt 和 b.txt',
+  onRequest: messages => requests.push(messages),
 })
-await 清理(工作目录)
+await cleanup(workdir)
 
-console.log(`\n=== 这个 turn 一共发了 ${每次请求.length} 次请求 ===`)
-for (const [下标, 消息们] of 每次请求.entries()) {
-  console.log(`\n── 第 ${下标 + 1} 次请求的 messages（${消息们.length} 条）──`)
-  for (const m of 消息们) {
-    const 摘要 = String(m.content ?? '(null)').replace(/\n/g, ' ⏎ ').slice(0, 72)
-    console.log(`  ${m.role.padEnd(9)} ${摘要}`)
+console.log(`\n=== 这个 turn 一共发了 ${requests.length} 次请求 ===`)
+for (const [index, messages] of requests.entries()) {
+  console.log(`\n── 第 ${index + 1} 次请求的 messages（${messages.length} 条）──`)
+  for (const m of messages) {
+    const summary = String(m.content ?? '(null)').replace(/\n/g, ' ⏎ ').slice(0, 72)
+    console.log(`  ${m.role.padEnd(9)} ${summary}`)
   }
 }
 

@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const 课程根目录 = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const COURSE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 /**
  * 起一个按剧本回答的假模型服务器。
@@ -21,40 +21,40 @@ const 课程根目录 = resolve(dirname(fileURLToPath(import.meta.url)), '..')
  * @param {(消息们: object[]) => void} [看见每次请求] - 每收到一次请求回调一次，参数是完整的 messages 数组。
  * @returns {Promise<{端口: number, 关掉: () => Promise<void>}>}
  */
-export function 启动假服务器(剧本, 最终回答, 看见, 看见系统提示, 看见每次请求) {
-  let 报过系统提示 = false
-  let 第几轮 = 0
-  const 服务器 = createServer(async (req, res) => {
+export function startFakeServer(script, finalAnswer, onToolResult, onSystemPrompt, onRequest) {
+  let reportedSystemPrompt = false
+  let round = 0
+  const server = createServer(async (req, res) => {
     let body = ''
-    for await (const 块 of req) body += 块
-    const 消息们 = JSON.parse(body).messages
-    if (!报过系统提示 && 看见系统提示 !== undefined) {
-      报过系统提示 = true
-      看见系统提示(消息们[0].content)
+    for await (const chunk of req) body += chunk
+    const messages = JSON.parse(body).messages
+    if (!reportedSystemPrompt && onSystemPrompt !== undefined) {
+      reportedSystemPrompt = true
+      onSystemPrompt(messages[0].content)
     }
-    if (看见每次请求 !== undefined) 看见每次请求(消息们)
-    const 最后一条 = 消息们.at(-1)
-    if (最后一条.role === 'tool' && 看见 !== undefined) 看见(最后一条.content)
+    if (onRequest !== undefined) onRequest(messages)
+    const last = messages.at(-1)
+    if (last.role === 'tool' && onToolResult !== undefined) onToolResult(last.content)
 
     res.writeHead(200, { 'content-type': 'text/event-stream' })
-    const 帧 = 增量 => res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: 增量, finish_reason: null }] })}\n\n`)
-    const 收尾 = 原因 => res.write(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 原因 }] })}\n\n`)
+    const frame = delta => res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: delta, finish_reason: null }] })}\n\n`)
+    const finish = reason => res.write(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: reason }] })}\n\n`)
 
-    const 这一步 = 剧本[第几轮++]
-    if (这一步 === undefined) {
-      帧({ content: 最终回答 })
-      收尾('stop')
+    const step = script[round++]
+    if (step === undefined) {
+      frame({ content: finalAnswer })
+      finish('stop')
     } else {
-      帧({ tool_calls: [{ index: 0, id: `call_${第几轮}`, type: 'function', function: { name: 这一步.name, arguments: JSON.stringify(这一步.args) } }] })
-      收尾('tool_calls')
+      frame({ tool_calls: [{ index: 0, id: `call_${round}`, type: 'function', function: { name: step.name, arguments: JSON.stringify(step.args) } }] })
+      finish('tool_calls')
     }
     res.write('data: [DONE]\n\n')
     res.end()
   })
-  return new Promise(完成 => {
-    服务器.listen(0, () => 完成({
-      端口: 服务器.address().port,
-      关掉: () => new Promise(结束 => 服务器.close(() => { 结束() })),
+  return new Promise(resolve => {
+    server.listen(0, () => resolve({
+      port: server.address().port,
+      close: () => new Promise(done => server.close(() => { done() })),
     }))
   })
 }
@@ -72,49 +72,49 @@ export function 启动假服务器(剧本, 最终回答, 看见, 看见系统提
  * @param {(消息们: object[]) => void} [选项.看见每次请求] - 每次请求回调一次，参数是完整的 messages。
  * @returns {Promise<string>} 临时工作目录路径（调用方可以再检查文件内容）。
  */
-export async function 跑一次会话({ 文件 = {}, 剧本, 最终回答, 输入, 看见, 看见系统提示, 看见每次请求, 配置 = {} }) {
-  const 工作目录 = await mkdtemp(join(tmpdir(), 'dsh-demo-'))
-  for (const [相对路径, 内容] of Object.entries(文件)) {
-    await mkdir(dirname(join(工作目录, 相对路径)), { recursive: true })
-    await writeFile(join(工作目录, 相对路径), 内容, 'utf8')
+export async function runSession({ files = {}, script, finalAnswer, input, onToolResult, onSystemPrompt, onRequest, config = {} }) {
+  const workdir = await mkdtemp(join(tmpdir(), 'dsh-demo-'))
+  for (const [relPath, content] of Object.entries(files)) {
+    await mkdir(dirname(join(workdir, relPath)), { recursive: true })
+    await writeFile(join(workdir, relPath), content, 'utf8')
   }
 
-  const { 端口, 关掉 } = await 启动假服务器(剧本, 最终回答, 看见, 看见系统提示, 看见每次请求)
+  const { port, close } = await startFakeServer(script, finalAnswer, onToolResult, onSystemPrompt, onRequest)
   // 密钥必须是 ASCII：HTTP 头是 ByteString，塞中文会在发请求时炸掉。
-  const 配置路径 = join(工作目录, '.dsh-learn-demo.json')
-  await writeFile(配置路径, JSON.stringify({
-    baseURL: `http://127.0.0.1:${端口}/v1`,
+  const configPath = join(workdir, '.dsh-learn-demo.json')
+  await writeFile(configPath, JSON.stringify({
+    baseURL: `http://127.0.0.1:${port}/v1`,
     model: 'mock',
     apiKeyEnv: 'DSH_DEMO_KEY',
     systemPrompt: '你是一个帮忙改代码的助手。',
-    ...配置,
+    ...config,
   }), 'utf8')
 
-  await new Promise((完成, 失败) => {
-    const 子进程 = spawn(
+  await new Promise((resolve, reject) => {
+    const child = spawn(
       process.execPath,
-      ['--import', join(课程根目录, 'node_modules/tsx/dist/loader.mjs'), join(课程根目录, 'src/index.ts')],
+      ['--import', join(COURSE_ROOT, 'node_modules/tsx/dist/loader.mjs'), join(COURSE_ROOT, 'src/index.ts')],
       {
-        cwd: 工作目录,
+        cwd: workdir,
         stdio: ['pipe', 'inherit', 'inherit'],
-        env: { ...process.env, DSH_LEARN_CONFIG: 配置路径, DSH_DEMO_KEY: 'demo-key-not-real' },
+        env: { ...process.env, DSH_LEARN_CONFIG: configPath, DSH_DEMO_KEY: 'demo-key-not-real' },
       },
     )
-    子进程.stdin.end(`${输入}\n`)
-    子进程.on('error', 失败)
-    子进程.on('close', () => { 完成() })
+    child.stdin.end(`${input}\n`)
+    child.on('error', reject)
+    child.on('close', () => { resolve() })
   })
 
-  await 关掉()
-  return 工作目录
+  await close()
+  return workdir
 }
 
 /**
- * 删掉 {@link 跑一次会话} 建出来的临时目录。
+ * 删掉 {@link runSession} 建出来的临时目录。
  * @param {string} 目录 - 临时工作目录。
  */
-export async function 清理(目录) {
-  await rm(目录, { recursive: true, force: true })
+export async function cleanup(dir) {
+  await rm(dir, { recursive: true, force: true })
 }
 
 /**
@@ -123,4 +123,4 @@ export async function 清理(目录) {
  * 直接调 `tool.execute()` 的演示要用它——4.4 之后 `execute` 的第二个参数是必填的。
  * 真实调用永远该走 `执行工具()`，由管线来发这个信号。
  */
-export const 不取消 = new AbortController().signal
+export const NEVER_ABORTED = new AbortController().signal

@@ -9,7 +9,7 @@
 4.2 之后，模型要找一个函数用在哪，只能这么干：
 
 ```
-bash({ command: "grep -rn '取字符串' ." })
+bash({ command: "grep -rn 'requireString' ." })
 ```
 
 看起来能用。三个问题一个比一个严重。
@@ -23,8 +23,8 @@ bash({ command: "grep -rn '取字符串' ." })
 模型生成的 `pattern` 是一段文本，被我们拼进命令行字符串，然后交给 `bash -c`。**shell 会解释它。**
 
 ```js
-const 模型给的pattern = '$(touch 被注入了.txt)hello'
-await bashTool.execute({ command: `grep -rn "${模型给的pattern}" .` })
+const patternFromModel = '$(touch 被注入了.txt)hello'
+await bashTool.execute({ command: `grep -rn "${patternFromModel}" .` })
 ```
 
 ```
@@ -44,7 +44,7 @@ await bashTool.execute({ command: `grep -rn "${模型给的pattern}" .` })
 ### 问题三：`-` 开头的 pattern 变成了选项
 
 ```
-③ pattern 以 - 开头，走 bash —— 它变成了命令行选项：
+③ pattern 以 - open，走 bash —— 它变成了命令行选项：
    a.ts:1
 ④ 同一个 pattern，走 grep 工具：
    没有匹配。
@@ -73,15 +73,15 @@ await bashTool.execute({ command: `grep -rn "${模型给的pattern}" .` })
 两个工具共用一个目录遍历：
 
 ```ts
-const 不进的目录 = new Set(['.git', 'node_modules', 'dist', 'lib', 'coverage', '.cache'])
+const SKIPPED_DIRS = new Set(['.git', 'node_modules', 'dist', 'lib', 'coverage', '.cache'])
 
-async function* 遍历文件(根目录: string): AsyncGenerator<string> {
-  const 待办 = [根目录]
-  let 已看文件数 = 0
-  while (待办.length > 0) {
-    const 目录 = 待办.pop()
-    if (目录 === undefined) return
-    const 条目 = await readdir(目录, { withFileTypes: true }).catch(() => [])
+async function* walkFiles(root: string): AsyncGenerator<string> {
+  const pending = [root]
+  let walked = 0
+  while (pending.length > 0) {
+    const dir = pending.pop()
+    if (dir === undefined) return
+    const entries = await readdir(dir, { withFileTypes: true }).catch(() => [])
     ...
   }
 }
@@ -100,7 +100,7 @@ async function* 遍历文件(根目录: string): AsyncGenerator<string> {
 glob 编译成正则：
 
 ```ts
-function glob转正则(模式: string): RegExp {
+function globToRegExp(glob: string): RegExp {
   // ** 跨目录、* 不跨目录、? 单字符，其余按字面量（正则元字符必须转义）
 }
 ```
@@ -110,7 +110,7 @@ function glob转正则(模式: string): RegExp {
 ## glob：为什么按修改时间排序
 
 ```ts
-命中.sort((甲, 乙) => 乙.修改时间 - 甲.修改时间)
+hits.sort((a, b) => b.mtime - a.mtime)
 ```
 
 ```
@@ -127,9 +127,9 @@ src/llm.ts
 
 ```
 ── ③ grep：这个函数用在哪 ──
-src/tool.ts:51: function 取字符串(args: Record<string, unknown>, 字段名: string): string {
-src/tool.ts:92:     const 路径 = 解析路径(取字符串(args, 'path'))
-  …（共 16 行）
+src/tool.ts:51: function requireString(args: Record<string, unknown>, field: string): string {
+src/tool.ts:92:     const target = resolveInsideCwd(requireString(args, 'path'))
+  …（共 16 line）
 
 ── ④ grep：模型写了个编译不过的正则 ──
 拒绝：pattern 不是合法的正则表达式：Invalid regular expression: /(/: Unterminated group
@@ -148,10 +148,10 @@ src/tool.ts:92:     const 路径 = 解析路径(取字符串(args, 'path'))
 
 ```ts
 // 二进制文件读出来是乱码，正则可能碰巧匹配上，输出是一堆不可打印字符。
-if (内容 === undefined || 内容.includes('\0')) continue
+if (content === undefined || content.includes('\0')) continue
 
 // 压缩过的 JS、单行 JSON 数据能一行几十万字符。
-const 裁过的行 = 行.length > 最大行字符数 ? `${行.slice(0, 最大行字符数)}…` : 行
+const clipped = line.length > MAX_LINE_CHARS ? `${line.slice(0, MAX_LINE_CHARS)}…` : line
 ```
 
 注意 grep 的截断是**逐行**的，不是整体的：一行超长不该让别的匹配消失。4.2 的 bash 截断的是整体输出的末尾。同一个词，第三种做法——**截断永远要问"截什么、留哪头"**。
@@ -178,11 +178,11 @@ npm run demo demos/04-tools/04-red-green.mjs
 
 ## 然后：我们补不掉的那个洞
 
-`pattern` 直接交给了 `new RegExp(模式文本)`。JS 的正则引擎是**回溯式**的，遇到某些模式会指数级爆炸。
+`pattern` 直接交给了 `new RegExp(source)`。JS 的正则引擎是**回溯式**的，遇到某些模式会指数级爆炸。
 
 ```
 开始搜索 pattern = (a+)+$ ，文件里只有一行：40 个 a 加一个 b
-[退出码 124]        ← timeout 8 秒之后强杀
+[code 124]        ← timeout 8 秒之后强杀
 ```
 
 40 个字符的一行，一个 6 字符的 pattern，**跑到天荒地老**。而同一个 pattern 交给 `rg`：

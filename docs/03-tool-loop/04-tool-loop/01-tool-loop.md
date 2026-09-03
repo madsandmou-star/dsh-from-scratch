@@ -10,17 +10,17 @@
    ▼
 ┌─ step：请求模型 ──────────────────┐
 │      │                            │
-│      ├─ 没要求调工具 → 打印回答，turn 结束
+│      ├─ 没要求调工具 → 打印回答，turn done
 │      │                            │
 │      └─ 要求调工具                 │
 │            ├─ 把 assistant(tool_calls) 记进历史
 │            ├─ 执行每个工具         │
 │            ├─ 把 tool 结果记进历史 │
-│            └─ 回到 step 开头 ──────┘
+│            └─ 回到 step open ──────┘
 └─ 超过最大步数 → 强制停止
 ```
 
-代码是 [`src/index.ts`](../../../src/index.ts) 里的 `跑一个turn()`。核心只有一句话：**没有工具调用就返回，有就执行完再来一轮。**
+代码是 [`src/index.ts`](../../../src/index.ts) 里的 `runTurn()`。核心只有一句话：**没有工具调用就返回，有就执行完再来一轮。**
 
 ## 用户视角 vs 模型视角
 
@@ -70,15 +70,15 @@
 ```ts
 messages.push({
   role: 'assistant',
-  content: 文本 === '' ? null : 文本,
-  ...工具调用.length === 0 ? {} : { tool_calls: ... },
+  content: text === '' ? null : text,
+  ...toolCalls.length === 0 ? {} : { tool_calls: ... },
 })
 ```
 
 ### ② 配对靠 `tool_call_id`，不靠顺序
 
 ```ts
-messages.push({ role: 'tool', tool_call_id: call.id, content: 结果 })
+messages.push({ role: 'tool', tool_call_id: call.id, content: result })
 ```
 
 一轮里可以有多个工具并行调用，结果的顺序不保证与调用顺序一致（真实实现里往往是并发执行，谁先完成谁先回）。**id 是唯一可靠的配对方式。**
@@ -86,7 +86,7 @@ messages.push({ role: 'tool', tool_call_id: call.id, content: 结果 })
 ### ③ 最大步数不是可选项
 
 ```ts
-const 最大步数 = 10
+const MAX_STEPS = 10
 ```
 
 防的是"模型反复调工具但永远不给最终回答"——它可能陷在自己看不出来的循环里（读 A 发现要读 B，读 B 发现要读 A）。**没有这个上限，agent 会一直烧钱直到你按 Ctrl-C。**
@@ -110,11 +110,11 @@ tool      | A 的结果
 我们的处理是最朴素的：**把这个 turn 期间追加的消息全部回滚**。
 
 ```ts
-const 回滚点 = messages.length
+const rollbackTo = messages.length
 messages.push({ role: 'user', content: input })
-try { await 跑一个turn() } catch (error) {
+try { await runTurn() } catch (error) {
   console.error(`[本轮中断，已回滚] …`)
-  while (messages.length > 回滚点) messages.pop()
+  while (messages.length > rollbackTo) messages.pop()
 }
 ```
 

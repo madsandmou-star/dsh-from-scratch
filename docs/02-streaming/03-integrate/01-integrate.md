@@ -72,7 +72,7 @@ messages.push({ role: 'assistant', content: reply })
 两种断法要分清，实测两条都走通了：
 
 ```sh
-# ① 连接被掐（服务器 destroy、网络断、代理超时）
+# ① 连接被掐（server destroy、网络断、代理超时）
 模型 > 这句话说到一半就断
 [本轮中断，已丢弃] terminated                    ← fetch 底层抛的
 

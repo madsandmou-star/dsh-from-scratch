@@ -9,7 +9,7 @@
 #    用户看到三段回答，服务器看到三次请求（历史 2 → 4 → 6 条）
 
 # ② 工具参数校验（不经过模型直接试）
-#    正常路径 → 内容；路径越界 → 拒绝；类型不对 → 拒绝；缺参数 → 拒绝
+#    正常路径 → content；路径越界 → 拒绝；类型不对 → 拒绝；缺参数 → 拒绝
 
 # ③ 失控的模型：永远调工具不给回答
 #    执行了几次工具: 10
@@ -40,7 +40,7 @@ npm run typecheck && npm run check
 ```
 src/tool.ts      # 新增：Tool 接口 + read 工具 + 参数校验 + wire 格式转换
 src/llm.ts       # 改：请求带 tools；流式累积工具调用；产出带标签联合
-src/index.ts     # 改：跑一个turn()（tool loop）、执行工具、失败回滚
+src/index.ts     # 改：runTurn()（tool loop）、runTool、失败回滚
 src/types.ts     # 改：ToolCall、StreamEvent、Message 长出 tool_calls/tool_call_id
 ```
 
@@ -51,7 +51,7 @@ src/types.ts     # 改：ToolCall、StreamEvent、Message 长出 tool_calls/tool
 我们的执行是一行：
 
 ```ts
-return await tool.execute(参数)
+return await tool.execute(args)
 ```
 
 dsh 是三个 waterfall 事件。把它们的 JSDoc 摆在一起看，设计意图非常清楚：
@@ -102,7 +102,7 @@ dsh 是三个 waterfall 事件。把它们的 JSDoc 摆在一起看，设计意�
 
 ### 1. 终止条件由模型决定时，必须外部兜底
 
-`最大步数` 这行代码防的不是 bug，是**模型的正常行为**——它可能真的觉得还需要再读一个文件。agent 与普通程序的一个根本差别就在这里：**你调用的那个东西不保证会停。**
+`MAX_STEPS` 这行代码防的不是 bug，是**模型的正常行为**——它可能真的觉得还需要再读一个文件。agent 与普通程序的一个根本差别就在这里：**你调用的那个东西不保证会停。**
 
 同类判断在后面会反复出现：上下文窗口（阶段 16）、并发工具数、子 agent 深度（阶段 17）。**凡是模型能自由决定次数的地方，都要有一个它够不着的上限。**
 

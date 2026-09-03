@@ -19,7 +19,7 @@ npm run typecheck
 
 # ④ 讲义自检：链接与源码引用有没有失效
 npm run check
-# check-course: 通过（14 个 Markdown 文件，链接全部可解析，46 处源码路径存在）
+# check-course: 通过（14 个 Markdown files，链接全部可解析，46 处源码路径存在）
 
 # ⑤ 失败路径：错误信息要能照着做
 node --import tsx src/index.ts

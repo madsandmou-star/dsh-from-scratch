@@ -28,7 +28,7 @@
 阶段 18 的 preset 要给某个 agent 换一个 persona。试一下：
 
 ```
-=== ① 痛点：想换掉 persona，但只能"加" ===
+=== ① 痛点：想换掉 persona，但只能"push" ===
   ❌ system prompt 段落重名：deployment:persona
 ```
 
@@ -38,65 +38,65 @@
 
 ## 解法：一句话和一张图
 
-**加两个正交的东西：一个显式的"替换"动作（换掉具名槽位里的那一段），和段落上的一个 `完整` 标记（这一段就是全部）。**
+**加两个正交的东西：一个显式的"替换"动作（换掉具名槽位里的那一段），和段落上的一个 `complete` 标记（这一段就是全部）。**
 
 ```
 只能加（5.3）：
-  身份(-100) + persona(0) + 工具指引(100) + 只读(110)  ──全部拼起来──→ system prompt
+  身份(-100) + persona(0) + 工具指引(100) + readOnly(110)  ──全部拼起来──→ system prompt
 
-替换（换掉槽位里的内容，其余不动）：
-  身份(-100) + 【新 persona】(0) + 工具指引(100) + 只读(110)  ──全部拼起来──→ system prompt
+replace（换掉槽位里的内容，其余不动）：
+  身份(-100) + 【新 persona】(0) + 工具指引(100) + readOnly(110)  ──全部拼起来──→ system prompt
 
-完整（只留这一段，其余照样求值但不进 prompt）：
-  身份(-100) + 【persona 带 完整:true】(0) + 工具指引(100)  ──只留中间那段──→ system prompt
+complete（只留这一段，其余照样求值但不进 prompt）：
+  身份(-100) + 【persona 带 complete:true】(0) + 工具指引(100)  ──只留中间那段──→ system prompt
 ```
 
 ### 全部代码，一眼看完
 
-`替换` 只有六行：
+`replace` 只有六行：
 
 ```ts
-替换(段: 提示段): () => void {
-  const 原来的 = this.段们.get(段.名字)
-  if (原来的 === undefined) throw new Error(`没有名为 ${段.名字} 的段落可替换（要新增请用 注册）`)
-  this.段们.set(段.名字, 段)
-  return () => { this.段们.set(段.名字, 原来的) }   // 注销 = 把原来那段放回去
+replace(section: PromptSection): () => void {
+  const previous = this.sections.get(section.name)
+  if (previous === undefined) throw new Error(`没有名为 ${section.name} 的段落可替换（要新增请用 register）`)
+  this.sections.set(section.name, section)
+  return () => { this.sections.set(section.name, previous) }   // 注销 = 把原来那段放回去
 }
 ```
 
-`完整` 是组装时的一个分支：
+`complete` 是组装时的一个分支：
 
 ```ts
-组装(): string {
-  const 变量表 = this.取这次的变量()
-  const 按顺序 = [...this.段们.values()].sort((甲, 乙) => 甲.顺序 - 乙.顺序)
+assemble(): string {
+  const values = this.resolveVariables()
+  const ordered = [...this.sections.values()].sort((a, b) => a.order - b.order)
 
   // 两段都说"我是全部"是配置错误：没有任何规则能决定听谁的。
-  const 完整的 = 按顺序.filter(段 => 段.完整 === true)
-  if (完整的.length > 1) throw new Error(`同时有多段声明了"完整"：${完整的.map(段 => 段.名字).join('、')}`)
+  const completeOnes = ordered.filter(section => section.complete === true)
+  if (completeOnes.length > 1) throw new Error(`同时有多段声明了"complete"：${completeOnes.map(section => section.name).join('、')}`)
 
-  // 注意变量照样插值：`完整` 换掉的是"哪些段进 prompt"，不是"要不要处理模板"。
-  const 只留一段 = 完整的[0]
-  if (只留一段 !== undefined) return this.渲染一段(只留一段, 变量表)
+  // 注意变量照样插值：`complete` 换掉的是"哪些段进 prompt"，不是"要不要处理模板"。
+  const onlyOne = completeOnes[0]
+  if (onlyOne !== undefined) return this.renderSection(onlyOne, values)
 
-  return 按顺序.map(段 => this.渲染一段(段, 变量表)).filter(文本 => 文本 !== '').join('\n\n')
+  return ordered.map(section => this.renderSection(section, values)).filter(text => text !== '').join('\n\n')
 }
 ```
 
-外加一个和 `完整` **正交**的开关：
+外加一个和 `complete` **正交**的开关：
 
 ```ts
-抑制上下文(): () => void {
-  this.上下文被抑制 = true
-  return () => { this.上下文被抑制 = false }
+suppressContext(): () => void {
+  this.contextSuppressed = true
+  return () => { this.contextSuppressed = false }
 }
 ```
 
 以及一个导出的常量——它比上面所有代码都重要：
 
 ```ts
-export const PERSONA段名 = 'deployment:persona'
-export const PERSONA顺序 = 0
+export const PERSONA_SECTION = 'deployment:persona'
+export const PERSONA_ORDER = 0
 ```
 
 ### 用起来
@@ -104,24 +104,24 @@ export const PERSONA顺序 = 0
 换掉 persona：
 
 ```ts
-const 恢复 = 提示.替换({ 名字: PERSONA段名, 顺序: PERSONA顺序, 文本: '你在帮一个前端工程师读后端代码。' })
+const restore = prompt.replace({ name: PERSONA_SECTION, order: PERSONA_ORDER, text: '你在帮一个前端工程师读后端代码。' })
 ```
 
 一个最小的 subagent：
 
 ```ts
-提示.替换({ 名字: PERSONA段名, 顺序: PERSONA顺序, 完整: true, 文本: '你只做一件事：把给你的文件总结成三句话。' })
-提示.抑制上下文()
+prompt.replace({ name: PERSONA_SECTION, order: PERSONA_ORDER, complete: true, text: '你只做一件事：把给你的文件总结成三句话。' })
+prompt.suppressContext()
 ```
 
 ### 产出
 
 ```
 ── subagent 的装配 ──
-   -100  harness:identity      111 字符  ← 未生效
-      0  deployment:persona     20 字符
-    100  tools:guidance        214 字符  ← 未生效
-  system prompt（20 字符）：
+   -100  harness:identity      111 ch  ← 未生效
+      0  deployment:persona     20 ch
+    100  tools:guidance        214 ch  ← 未生效
+  system prompt（20 ch）：
     你只做一件事：把给你的文件总结成三句话。
   运行时快照：（无）
 ```
@@ -130,29 +130,29 @@ const 恢复 = 提示.替换({ 名字: PERSONA段名, 顺序: PERSONA顺序, 文
 
 下面看这几个选择。
 
-## 为什么 `替换` 是另一个方法，而不是"注册时允许覆盖"
+## 为什么 `replace` 是另一个方法，而不是"注册时允许覆盖"
 
 最省事的改法是把 5.1 那句抛错删掉，让后注册的覆盖先注册的。**不行**，因为那样就分不清两种情况了：
 
 | 意图 | 现在的行为 |
 |---|---|
-| 我不知道有人占了这个名字 | `注册` → **抛错**（5.1 那条规矩，静默覆盖会让人查半天） |
-| 我就是要换掉它 | `替换` → 换掉，并给回一个恢复函数 |
+| 我不知道有人占了这个名字 | `register` → **抛错**（5.1 那条规矩，静默覆盖会让人查半天） |
+| 我就是要换掉它 | `replace` → 换掉，并给回一个恢复函数 |
 
-**同一个动作，两种意图，就该是两个方法。** 读代码的人看到 `替换(...)` 就知道这里是有意为之；看到 `注册(...)` 撞名字炸了，就知道是撞车了。
+**同一个动作，两种意图，就该是两个方法。** 读代码的人看到 `replace(...)` 就知道这里是有意为之；看到 `register(...)` 撞名字炸了，就知道是撞车了。
 
 > 这条比看起来通用：**当一个 API 的行为取决于"调用者是不是知道自己在做什么"时，把它拆成两个名字，而不是加一个 `force: true` 参数。**
 
 ## 具名槽位：那个导出的常量才是关键
 
-`替换` 能工作，前提是**两边用的是同一个名字**。所以名字不能各处各写一遍字符串字面量，得是一个导出的常量：
+`replace` 能工作，前提是**两边用的是同一个名字**。所以名字不能各处各写一遍字符串字面量，得是一个导出的常量：
 
 ```ts
-提示.注册({ 名字: PERSONA段名, ... })      // 装配时
-提示.替换({ 名字: PERSONA段名, ... })      // preset 覆盖时
+prompt.register({ name: PERSONA_SECTION, ... })      // 装配时
+prompt.replace({ name: PERSONA_SECTION, ... })      // preset 覆盖时
 ```
 
-写错一个字母，`替换` 会抛"没有这个段落可替换"——**这比静默地多出一段人设好得多**。
+写错一个字母，`replace` 会抛"没有这个段落可替换"——**这比静默地多出一段人设好得多**。
 
 dsh 把这条写在常量的 JSDoc 里，说得很清楚：
 
@@ -175,11 +175,11 @@ ctx.effect(() => ctx.systemPrompt.section({
 
 **"槽位"就是一个约定好名字的位置。** 它不是语言特性，就是一个大家都同意去写的字符串——而把它变成导出常量，是让这个约定**能被编译器和 IDE 帮忙检查**的唯一办法。
 
-## `完整` 换掉的是"哪些段进 prompt"，不是"要不要处理模板"
+## `complete` 换掉的是"哪些段进 prompt"，不是"要不要处理模板"
 
 ```
-=== ③ 完整：这一段就是全部 ===
-  system prompt（47 字符）：
+=== ③ complete：这一段就是全部 ===
+  system prompt（47 ch）：
     你只做一件事：把给你的文件总结成三句话。工作目录是 /home/me/项目。不要调用任何工具。
 ```
 
@@ -189,13 +189,13 @@ dsh 的 JSDoc 是同一句话：
 
 > Assembly still runs the cooperative waterfall so tools, contexts, and variables can be resolved, then restores this exact section as the sole prompt section.
 
-**为什么不干脆跳过整个组装？** 因为一个"完整 prompt"的 agent 照样要用工具、照样要看运行时上下文、照样要 `{{cwd}}`。**`完整` 说的只是"system prompt 的内容由我一个人定"，不是"我不需要这个 harness 的其余部分"。**
+**为什么不干脆跳过整个组装？** 因为一个"完整 prompt"的 agent 照样要用工具、照样要看运行时上下文、照样要 `{{cwd}}`。**`complete` 说的只是"system prompt 的内容由我一个人定"，不是"我不需要这个 harness 的其余部分"。**
 
 ## 两段都说"我是全部" → 抛错
 
 ```
 === ④ 两段都说"我是全部" ===
-  ❌ 同时有多段声明了"完整"：deployment:persona、tools:guidance
+  ❌ 同时有多段声明了"complete"：deployment:persona、tools:guidance
 ```
 
 **没有任何规则能决定听谁的。** 按 order 取第一个？那是随便挑一个然后假装有道理。按注册顺序？那让结果取决于插件加载顺序，是这门课一路在避免的那种脆弱。
@@ -204,23 +204,23 @@ dsh 的 JSDoc 是同一句话：
 
 ## 顺手：让 debug 清单别说谎
 
-加了 `完整` 之后，`清单()` 出了个问题——它会列出所有段落，包括那些**根本不会进 prompt** 的：
+加了 `complete` 之后，`inventory()` 出了个问题——它会列出所有段落，包括那些**根本不会进 prompt** 的：
 
 ```
-   -100  harness:identity      111 字符  ← 未生效
-      0  deployment:persona     20 字符
-    100  tools:guidance        214 字符  ← 未生效
+   -100  harness:identity      111 ch  ← 未生效
+      0  deployment:persona     20 ch
+    100  tools:guidance        214 ch  ← 未生效
 ```
 
 那个 `← 未生效` 是补上去的。**一个会说谎的 debug 工具比没有更糟**：你盯着"harness:identity 111 字符"，以为模型读到了身份说明，实际它一个字都没看到。
 
-同一条也适用于空段落——5.1 的 `生效: false` 现在统一表示"这一段不会出现在最终 prompt 里"，不管原因是空还是被 `完整` 顶掉了。
+同一条也适用于空段落——5.1 的 `生效: false` 现在统一表示"这一段不会出现在最终 prompt 里"，不管原因是空还是被 `complete` 顶掉了。
 
-## `完整` 和 `抑制上下文` 是两个开关
+## `complete` 和 `suppressContext` 是两个开关
 
 ```
-=== ⑤ 一个最小的 subagent：完整 + 抑制上下文 ===
-  system prompt（20 字符）：
+=== ⑤ 一个最小的 subagent：complete + suppressContext ===
+  system prompt（20 ch）：
     你只做一件事：把给你的文件总结成三句话。
   运行时快照：（无）
 ```
@@ -247,7 +247,7 @@ includeRuntimeContext: z.boolean().default(true),
 
 | | 我们的 | dsh |
 |---|---|---|
-| 替换机制 | 显式的 `替换()`，换掉 Map 里的值 | **作用域遮蔽**：scoped 层的同名 section 盖住 global 层的 |
+| 替换机制 | 显式的 `replace()`，换掉 Map 里的值 | **作用域遮蔽**：scoped 层的同名 section 盖住 global 层的 |
 | 撤销 | 手动拿回恢复函数 | Cordis 的 effect disposer，插件卸载自动恢复 |
 | 多个完整段 | 抛错 | 抛错（`multiple complete prompt sections are active`） |
 | 变更通知 | 无 | `system-prompt/change` 事件——因为装配可以在运行时变 |
@@ -266,7 +266,7 @@ return this.layers.effect(
 
 这样有两个我们做不到的好处：
 
-**① 同一份注册表能同时服务多个 agent。** 主 agent 用全局 persona，subagent 用它自己那层的 persona，两者**同时存在**、互不影响。我们的 `替换()` 是破坏性的——换了就换了，主 agent 也跟着变。
+**① 同一份注册表能同时服务多个 agent。** 主 agent 用全局 persona，subagent 用它自己那层的 persona，两者**同时存在**、互不影响。我们的 `replace()` 是破坏性的——换了就换了，主 agent 也跟着变。
 
 **② 撤销是自动的。** 我们要求调用方拿住那个恢复函数并记得调用；dsh 里它是 Cordis 的 effect，**插件被卸载时自动执行**。5.1 那句"注册即效果"到这里终于兑现了完整的价值——不只是"能撤销"，而是"撤销这件事不需要任何人记得"。
 

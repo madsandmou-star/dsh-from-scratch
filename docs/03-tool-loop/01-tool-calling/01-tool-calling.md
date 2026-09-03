@@ -142,7 +142,7 @@ assistant | 这个文件实现了一次流式的模型调用……         ← �
 
 ```ts
 if (choice?.delta.tool_calls !== undefined) {
-  throw new Error(`模型要求调用工具（${名字}），但阶段 3.3 之前还不支持`)
+  throw new Error(`模型要求调用工具（${name}），但阶段 3.3 之前还不支持`)
 }
 ```
 

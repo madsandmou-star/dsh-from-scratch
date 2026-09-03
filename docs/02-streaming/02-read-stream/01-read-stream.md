@@ -12,7 +12,7 @@
 
 ```
 ── 第 1 个网络 chunk（147 字节）
-"data: {...\"content\":\"甲\"}}]}\n\ndata: {...\"content\":\"乙\"}}]}\n\ndata: {...\"content\":\"丙\"}}]}\n\n"
+"data: {...\"content\":\"a\"}}]}\n\ndata: {...\"content\":\"b\"}}]}\n\ndata: {...\"content\":\"丙\"}}]}\n\n"
 ── 第 2 个网络 chunk（30 字节）
 "data: {\"choices\":[{\"delta\":{\"c"
 ── 第 3 个网络 chunk（19 字节）
@@ -65,8 +65,8 @@ while ((boundary = buffer.indexOf('\n\n')) !== -1) {
 完整实现在 [`src/sse.ts`](../../../src/sse.ts)，含逐行注释。跑同一个"故意乱切"的服务器：
 
 ```
-── 第 1 条事件: content = "甲"
-── 第 2 条事件: content = "乙"
+── 第 1 条事件: content = "a"
+── 第 2 条事件: content = "b"
 ── 第 3 条事件: content = "丙"
 ── 第 4 条事件: content = "丁"     ← 横跨两个 chunk 的那条
 ── 第 5 条事件: content = "戊"     ← 被劈开的中文字

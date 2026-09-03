@@ -6,10 +6,10 @@
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { 不取消 } from '../harness.mjs'
+import { NEVER_ABORTED } from '../harness.mjs'
 
-const 工作目录 = await mkdtemp(join(tmpdir(), 'dsh-demo-'))
-process.chdir(工作目录)
+const workdir = await mkdtemp(join(tmpdir(), 'dsh-demo-'))
+process.chdir(workdir)
 const { grepTool } = await import('../../src/tool.ts')
 await writeFile('长行.txt', `${'a'.repeat(40)}b\n`, 'utf8')
 
@@ -17,6 +17,6 @@ await writeFile('长行.txt', `${'a'.repeat(40)}b\n`, 'utf8')
 setTimeout(() => console.log('【看门狗】3 秒到了，我醒了'), 3000)
 
 console.log('开始搜索 pattern = (a+)+$ ，文件里只有一行：40 个 a 加一个 b')
-const 开始 = Date.now()
-const 结果 = await grepTool.execute({ pattern: '(a+)+$', include: '长行.txt' }, 不取消)
-console.log(`搜完了：${结果}（耗时 ${Date.now() - 开始}ms）`)
+const startedAt = Date.now()
+const result = await grepTool.execute({ pattern: '(a+)+$', include: '长行.txt' }, NEVER_ABORTED)
+console.log(`搜完了：${result}（耗时 ${Date.now() - startedAt}ms）`)

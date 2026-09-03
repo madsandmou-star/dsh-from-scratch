@@ -24,7 +24,7 @@ const m = JSON.parse(raw) as Message   // 运行时什么检查都没发生
 ## 会用到的六个语法
 
 ```ts
-// 1. 类型标注：变量、参数、返回值
+// 1. 类型标注：variable、args、返回值
 const who: string = 'dsh'
 function greet(name: string): string { return `hello, ${name}` }
 

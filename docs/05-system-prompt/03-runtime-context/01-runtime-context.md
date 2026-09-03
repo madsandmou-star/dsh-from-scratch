@@ -7,7 +7,7 @@
 模型不知道现在几点——它只知道训练截止到哪。所以很自然会想加一段：
 
 ```ts
-提示.注册({ 名字: 'time', 顺序: 50, 文本: () => `现在是 ${new Date().toISOString()}。` })
+prompt.register({ name: 'time', order: 50, text: () => `现在是 ${new Date().toISOString()}。` })
 ```
 
 一跑就出事（`demos/05-system-prompt/06-why-not-system-prompt.mjs`）：
@@ -15,7 +15,7 @@
 ```
 === 痛点：时间作为 system prompt 的一段 ===
   两个 step 的 system prompt 一样吗？ ★ 不一样
-  相同前缀只有 139 / 142 字符——后面全部要重新计算。
+  相同前缀只有 139 / 142 ch——后面全部要重新计算。
 ```
 
 三个问题，一个比一个深。
@@ -74,55 +74,55 @@
 注册表这边加一种新的注册和一个新的组装：
 
 ```ts
-export interface 上下文段 {
-  名字: string
-  顺序: number
-  文本: string | (() => string)
+export interface PromptContext {
+  name: string
+  order: number
+  text: string | (() => string)
 }
 
-const 快照开头 = '当前运行时上下文。这份快照取代之前所有的运行时上下文快照。'
-export const 快照已清空 = '当前运行时上下文：没有。之前的运行时上下文快照都不再适用。'
+const SNAPSHOT_PREAMBLE = '当前运行时上下文。这份快照取代之前所有的运行时上下文快照。'
+export const CONTEXT_CLEARED = '当前运行时上下文：没有。之前的运行时上下文快照都不再适用。'
 
-上下文(段: 上下文段): () => void {
-  if (this.上下文们.has(段.名字)) throw new Error(`上下文段落重名：${段.名字}`)
-  this.上下文们.set(段.名字, 段)
-  return () => { this.上下文们.delete(段.名字) }
+context(section: PromptContext): () => void {
+  if (this.contexts.has(section.name)) throw new Error(`上下文段落重名：${section.name}`)
+  this.contexts.set(section.name, section)
+  return () => { this.contexts.delete(section.name) }
 }
 
-组装上下文(): string {
-  const 变量表 = this.取这次的变量()          // 和 组装() 共用同一份变量快照
-  const 正文 = [...this.上下文们.values()]
-    .sort((甲, 乙) => 甲.顺序 - 乙.顺序)
-    .map(段 => 插值(段.名字, 求值(段), 变量表))
-    .filter(文本 => 文本 !== '')
+assembleContext(): string {
+  const values = this.resolveVariables()          // 和 assemble() 共用同一份变量快照
+  const body = [...this.contexts.values()]
+    .sort((a, b) => a.order - b.order)
+    .map(section => interpolate(section.name, 求值(section), values))
+    .filter(text => text !== '')
     .join('\n\n')
-  return 正文 === '' ? '' : `${快照开头}\n\n${正文}`
+  return body === '' ? '' : `${SNAPSHOT_PREAMBLE}\n\n${body}`
 }
 ```
 
 循环那边加一个"变了才发"：
 
 ```ts
-let 上次发出的快照: string | undefined
+let lastSentSnapshot: string | undefined
 
-function 追加上下文快照(): void {
-  const 快照 = 提示.组装上下文()
-  if (快照 === (上次发出的快照 ?? '')) return
+function appendContextSnapshot(): void {
+  const snapshot = prompt.assembleContext()
+  if (snapshot === (lastSentSnapshot ?? '')) return
   // 从"有"变成"没有"时要显式说一声。什么都不发的话，模型会继续拿旧快照当真。
-  messages.push({ role: 'user', content: 快照 === '' ? 快照已清空 : 快照 })
-  上次发出的快照 = 快照
+  messages.push({ role: 'user', content: snapshot === '' ? CONTEXT_CLEARED : snapshot })
+  lastSentSnapshot = snapshot
 }
 ```
 
 ### 用起来是一段注册 + 一行调用
 
 ```ts
-提示.上下文({ 名字: 'time', 顺序: 0, 文本: () => `现在是 ${new Date().toISOString()}。` })
+prompt.context({ name: 'time', order: 0, text: () => `现在是 ${new Date().toISOString()}。` })
 ```
 
 ```ts
-for (let step = 1; step <= 最大步数; step++) {
-  追加上下文快照()      // ← 每个 step 之前重算：一个 turn 可能跑十分钟
+for (let step = 1; step <= MAX_STEPS; step++) {
+  appendContextSnapshot()      // ← 每个 step 之前重算：一个 turn 可能跑十分钟
   ...
 }
 ```
@@ -197,7 +197,7 @@ Current runtime context. This snapshot supersedes earlier runtime-context snapsh
 ```
 === 从"有"变成"没有"：必须显式说一声 ===
   step 1 的快照：当前分支是 main。
-  step 2 的快照：（空）→ 要发的是："当前运行时上下文：没有。之前的运行时上下文快照都不再适用。"
+  step 2 的快照：（blank）→ 要发的是："当前运行时上下文：没有。之前的运行时上下文快照都不再适用。"
   什么都不发的话，模型会继续拿 step 1 那份当真。
 ```
 
@@ -224,18 +224,18 @@ const CLEARED = 'Current runtime context: none. Earlier runtime-context snapshot
 
 ## 我们的做法有一个 bug（而且我留着）
 
-`上次发出的快照` 是一个**记在旁边的变量**。1.4 那个错误回滚会把这轮追加的消息全弹掉：
+`lastSentSnapshot` 是一个**记在旁边的变量**。1.4 那个错误回滚会把这轮追加的消息全弹掉：
 
 ```ts
-while (messages.length > 回滚点) messages.pop()
+while (messages.length > rollbackTo) messages.pop()
 ```
 
-**快照消息被弹掉了，但那个变量还记着它。** 不处理的话，下一轮 `追加上下文快照()` 会认为"和上次一样"，于是不发——模型永远见不到那份上下文。
+**快照消息被弹掉了，但那个变量还记着它。** 不处理的话，下一轮 `appendContextSnapshot()` 会认为"和上次一样"，于是不发——模型永远见不到那份上下文。
 
 我加了一行补丁：
 
 ```ts
-上次发出的快照 = undefined
+lastSentSnapshot = undefined
 ```
 
 但这只是**堵住了我知道的那一个洞**。任何别的地方动了 `messages`，这个变量就又对不上了。
@@ -265,7 +265,7 @@ ctx.on('session/event', (subject, event) => {
 
 | | 我们的 | dsh |
 |---|---|---|
-| 注册 | `提示.上下文()` | `ctx.systemPrompt.context()`，绑插件生命周期 |
+| 注册 | `prompt.context()` | `ctx.systemPrompt.context()`，绑插件生命周期 |
 | 求值 | `() => string` | `(context: AssembleContext) => string`，能看到 agent 和 session |
 | 拼装 | 一个字符串 | `AssembledContext[]`，**保留每段的名字**，界面能逐段归属 |
 | 变成消息 | `messages.push()` | `RuntimeContextProjection.project()` 产出一条带 `source` 的 `UserMessage` |
@@ -283,7 +283,7 @@ source: { kind: 'plugin', plugin: SOURCE, form: 'snapshot', sections }
 
 界面拿到这条消息时，能说清"这一段来自 sandbox 策略、那一段来自审批策略"，而不用去反向切分那段拼好的散文。**又是 4.1 讲过的那条：一旦返回值要同时服务模型和界面，字符串就不够用了。**
 
-**② 插入点是一个 waterfall 的默认值。** `agent/pre-step` 的默认决定是 `{ kind: 'enter', messages: [...claimed, context] }`——也就是说，**插件可以改这个决定**：可以在快照前面再插点东西，也可以整个拒绝这一步（`kind: 'reject'`）。我们那句 `追加上下文快照()` 是写死的，dsh 那句是一个可以被接管的默认值。
+**② 插入点是一个 waterfall 的默认值。** `agent/pre-step` 的默认决定是 `{ kind: 'enter', messages: [...claimed, context] }`——也就是说，**插件可以改这个决定**：可以在快照前面再插点东西，也可以整个拒绝这一步（`kind: 'reject'`）。我们那句 `appendContextSnapshot()` 是写死的，dsh 那句是一个可以被接管的默认值。
 
 顺带一提，真实的 dsh 里"当前时间"**不走** `systemPrompt.context()`——它是一个独立的包 `dsh/packages/context/time-context/`，直接挂 `agent/pre-step`，因为它有自己的刷新节奏（不是每步都发，而是超过一个间隔才发）。**同一个位置有两条路：统一快照，和自己接管。** 前者简单，后者能带自己的策略。
 

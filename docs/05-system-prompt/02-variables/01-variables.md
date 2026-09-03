@@ -4,11 +4,11 @@
 
 ## 痛点：段落一旦要说"运行时才知道的事"，它就不再是文本了
 
-system prompt 里有些话必须带具体值：当前工作目录是哪个、跑的是哪个模型、在哪个 git 分支上。5.1 的 `文本` 可以是函数，所以看起来已经能做了：
+system prompt 里有些话必须带具体值：当前工作目录是哪个、跑的是哪个模型、在哪个 git 分支上。5.1 的 `text` 可以是函数，所以看起来已经能做了：
 
 ```ts
-提示.注册({ 名字: 'harness:identity', 顺序: -100, 文本: () => `你在一个 git 仓库里工作，当前分支是 ${当前分支()}。` })
-提示.注册({ 名字: 'tools:guidance',  顺序: 100,  文本: () => `提交前确认你还在 ${当前分支()} 分支上。` })
+prompt.register({ name: 'harness:identity', order: -100, text: () => `你在一个 git 仓库里工作，当前分支是 ${currentBranch()}。` })
+prompt.register({ name: 'tools:guidance',  order: 100,  text: () => `提交前确认你还在 ${currentBranch()} 分支上。` })
 ```
 
 跑一次（`demos/05-system-prompt/04-variables-pain.mjs`）：
@@ -28,7 +28,7 @@ system prompt 里有些话必须带具体值：当前工作目录是哪个、跑
 
 **③ 最要命的一条：段落不再是文本，而是代码。** 现在段落必须**自己知道去哪儿取值**。那么这些段落还能从哪来？
 
-- 配置文件里的 persona：JSON 里写不了 `${当前分支()}`
+- 配置文件里的 persona：JSON 里写不了 `${currentBranch()}`
 - 工作区的 `AGENTS.md`：一个 Markdown 文件里更写不了
 - 用户在界面上填的自定义指令：那是一个文本框
 
@@ -41,15 +41,15 @@ system prompt 里有些话必须带具体值：当前工作目录是哪个、跑
 改之前，取值嵌在每一段的代码里：
 
 ```
-段落 a ── 文本是函数 ──→ 自己调 当前分支() ──→ spawn git
-段落 b ── 文本是函数 ──→ 自己调 当前分支() ──→ spawn git   （第二次）
+段落 a ── 文本是函数 ──→ 自己调 currentBranch() ──→ spawn git
+段落 b ── 文本是函数 ──→ 自己调 currentBranch() ──→ spawn git   （第二次）
 ```
 
 改之后，取值集中在组装那一刻，段落退回成纯字符串：
 
 ```
-变量 branch ──┐
-变量 cwd    ──┼─→ 组装时一次性全部求值 ──→ 逐段插值 ──→ system prompt
+variable branch ──┐
+variable cwd    ──┼─→ 组装时一次性全部求值 ──→ 逐段插值 ──→ system prompt
 段落 a（纯文本，含 {{branch}}）──┘
 段落 b（纯文本，含 {{branch}}）──┘
 ```
@@ -59,73 +59,73 @@ system prompt 里有些话必须带具体值：当前工作目录是哪个、跑
 注册表多两个方法（一个注册、一个取值），加一个扫描器：
 
 ```ts
-变量(名字: string, 取值: () => string | undefined): () => void {
-  if (!变量名规则.test(名字)) throw new Error(`变量名不合法：${名字}`)
-  if (this.变量们.has(名字)) throw new Error(`变量重名：${名字}`)
-  this.变量们.set(名字, 取值)
-  return () => { this.变量们.delete(名字) }
+variable(name: string, provide: () => string | undefined): () => void {
+  if (!VARIABLE_NAME.test(name)) throw new Error(`变量名不合法：${name}`)
+  if (this.variables.has(name)) throw new Error(`变量重名：${name}`)
+  this.variables.set(name, provide)
+  return () => { this.variables.delete(name) }
 }
 
 // 一次组装只取一次：两段读到的 {{branch}} 必须是同一个值。
-private 取这次的变量(): Map<string, string | undefined> {
-  return new Map([...this.变量们].map(([名字, 取值]) => [名字, 取值()]))
+private resolveVariables(): Map<string, string | undefined> {
+  return new Map([...this.variables].map(([name, provide]) => [name, provide()]))
 }
 ```
 
 扫描器是整节课的主体，三十行：
 
 ```ts
-const 变量名规则 = /^[a-z][a-z0-9_]*$/
-const 此处的引用 = /^\{\{([^{}]*)\}\}/
+const VARIABLE_NAME = /^[a-z][a-z0-9_]*$/
+const REFERENCE_AT = /^\{\{([^{}]*)\}\}/
 
-function 插值(段名: string, 文本: string, 变量们: Map<string, string | undefined>): string {
-  let 结果 = ''
-  let 已处理到 = 0
-  for (let 开头 = 文本.indexOf('{{'); 开头 >= 0; 开头 = 文本.indexOf('{{', 已处理到)) {
-    const 引用 = 此处的引用.exec(文本.slice(开头))
-    if (引用 === null) {
+function interpolate(owner: string, text: string, variables: Map<string, string | undefined>): string {
+  let result = ''
+  let consumed = 0
+  for (let open = text.indexOf('{{'); open >= 0; open = text.indexOf('{{', consumed)) {
+    const group = REFERENCE_AT.exec(text.slice(open))
+    if (group === null) {
       // 后面还有 `}}` 说明想写引用但写坏了；否则这个 `{{` 就是普通文字。
-      if (文本.indexOf('}}', 开头 + 2) >= 0) throw new Error(`段落「${段名}」里有写坏的变量引用：…`)
-      结果 += 文本.slice(已处理到, 开头 + 2)
-      已处理到 = 开头 + 2
+      if (text.indexOf('}}', open + 2) >= 0) throw new Error(`段落「${owner}」里有写坏的变量引用：…`)
+      result += text.slice(consumed, open + 2)
+      consumed = open + 2
       continue
     }
-    const 名字 = 引用[1] ?? ''
-    if (!变量名规则.test(名字)) throw new Error(`段落「${段名}」里的变量名不合法："{{${名字}}}"`)
-    if (!变量们.has(名字)) throw new Error(`段落「${段名}」引用了未注册的变量 "{{${名字}}}"。已注册的变量：…`)
-    const 值 = 变量们.get(名字)
-    if (值 === undefined) throw new Error(`变量 "{{${名字}}}" 这一次组装没有取到值（段落「${段名}」）`)
-    // 拼到 结果 上，而不是回到文本里继续扫——替换进去的值不再被当成模板。
-    结果 += 文本.slice(已处理到, 开头) + 值
-    已处理到 = 开头 + 引用[0].length
+    const name = group[1] ?? ''
+    if (!VARIABLE_NAME.test(name)) throw new Error(`段落「${owner}」里的变量名不合法："{{${name}}}"`)
+    if (!variables.has(name)) throw new Error(`段落「${owner}」引用了未注册的变量 "{{${name}}}"。已注册的变量：…`)
+    const value = variables.get(name)
+    if (value === undefined) throw new Error(`variable "{{${name}}}" 这一次组装没有取到值（段落「${owner}」）`)
+    // 拼到 result 上，而不是回到文本里继续扫——替换进去的值不再被当成模板。
+    result += text.slice(consumed, open) + value
+    consumed = open + group[0].length
   }
-  return 结果 + 文本.slice(已处理到)
+  return result + text.slice(consumed)
 }
 ```
 
 ### 用起来是两行
 
 ```ts
-提示.变量('cwd', () => process.cwd())
-提示.变量('model', () => config.model)
+prompt.variable('cwd', () => process.cwd())
+prompt.variable('model', () => config.model)
 ```
 
 段落回归纯文本：
 
 ```ts
-文本: '你是一个跑在命令行里的编码助手。…\n'
+text: '你是一个跑在命令行里的编码助手。…\n'
   + '当前工作目录是 {{cwd}}，所有相对路径都相对于它。你正在以 {{model}} 运行。'
 ```
 
 ### 产出
 
 ```
-[system prompt 清单]
-   -100  harness:identity  (118 字符)
-      0  deployment:persona  (28 字符)
-    100  tools:guidance  (214 字符)
-    110  guard:read-only  (0 字符)
---- 拼出来的 system prompt（364 字符）---
+[system prompt inventory]
+   -100  harness:identity  (118 ch)
+      0  deployment:persona  (28 ch)
+    100  tools:guidance  (214 ch)
+    110  guard:read-only  (0 ch)
+--- 拼出来的 system prompt（364 ch）---
 你是一个跑在命令行里的编码助手。你可以读写文件、执行命令、搜索代码。回答要简短直接：用户看到的是终端，不是网页。
 当前工作目录是 /home/user/dsh-from-scratch，所有相对路径都相对于它。你正在以 mock 运行。
 ...
@@ -147,7 +147,7 @@ function 插值(段名: string, 文本: string, 变量们: Map<string, string | 
 一行就能写完：
 
 ```ts
-文本.replace(/\{\{([a-z][a-z0-9_]*)\}\}/g, (_, 名字) => 变量们.get(名字) ?? '')
+text.replace(/\{\{([a-z][a-z0-9_]*)\}\}/g, (_, name) => variables.get(name) ?? '')
 ```
 
 **它没法回答"出了什么事"。** 上面那个手写扫描器区分了**四种**情况，而 `replace` 只能给出一种结果：
@@ -168,7 +168,7 @@ function 插值(段名: string, 文本: string, 变量们: Map<string, string | 
   ❌ 段落「a」引用了未注册的变量 "{{cdw}}"。已注册的变量：cwd
 
 ── ③ 变量注册了，但这次取不到值 ──
-  ❌ 变量 "{{git_branch}}" 这一次组装没有取到值（段落「a」）
+  ❌ variable "{{git_branch}}" 这一次组装没有取到值（段落「a」）
 
 ── ④ 引用写坏了 ──
   ❌ 段落「a」里的变量名不合法："{{ cwd }}"（要求匹配 /^[a-z][a-z0-9_]*$/）
@@ -180,7 +180,7 @@ function 插值(段名: string, 文本: string, 变量们: Map<string, string | 
 
 ## `undefined` 和"没注册"是两回事
 
-注意 `取值` 的类型是 `() => string | undefined`，而这两种情况报的是不同的错：
+注意 `provide` 的类型是 `() => string | undefined`，而这两种情况报的是不同的错：
 
 - **没注册**：作者写错了名字，或者忘了注册 → 改代码
 - **注册了但返回 `undefined`**：这个事实**这一次拿不到** → 比如不在 git 仓库里，所以没有分支
@@ -188,7 +188,7 @@ function 插值(段名: string, 文本: string, 变量们: Map<string, string | 
 第二种不是 bug，是现实。但它仍然要报错，因为**段落里既然写了 `{{git_branch}}`，就说明作者认为它一定有值**。真正正确的写法是让整段变成条件性的（5.1 那个返回空串的技巧）：
 
 ```ts
-文本: () => (在git仓库里 ? '当前分支是 {{git_branch}}。' : '')
+text: () => (insideGitRepo ? '当前分支是 {{git_branch}}。' : '')
 ```
 
 **"这个值可能没有"是段落的事，不是变量的事。** 变量只回答"值是多少"。
@@ -218,11 +218,11 @@ function 插值(段名: string, 文本: string, 变量们: Map<string, string | 
 代码上就是这一行的差别：
 
 ```ts
-结果 += 文本.slice(已处理到, 开头) + 值      // 拼到"已完成"的部分上
-已处理到 = 开头 + 引用[0].length             // 从引用的**后面**继续扫
+result += text.slice(consumed, open) + value      // 拼到"已完成"的部分上
+consumed = open + group[0].length             // 从引用的**后面**继续扫
 ```
 
-替换进去的值落在 `结果` 里，扫描指针跳过它，**再也不会碰它**。
+替换进去的值落在 `result` 里，扫描指针跳过它，**再也不会碰它**。
 
 这是这门课第三次遇到同一件事：
 
@@ -249,7 +249,7 @@ function 插值(段名: string, 文本: string, 变量们: Map<string, string | 
 **② 测试里能固定住。** 想让 prompt 可复现，换掉取值函数就行：
 
 ```ts
-提示.变量('cwd', () => '/固定的测试目录')
+prompt.variable('cwd', () => '/固定的测试目录')
 ```
 
 **不用去 monkeypatch `process.cwd`。** 这是"把外部依赖变成一个可替换的函数"的最小形态——同一个思路，阶段 7 引入 Cordis 之后会变成整个服务注入体系。
@@ -265,8 +265,8 @@ function 插值(段名: string, 文本: string, 变量们: Map<string, string | 
 变量取值函数每次组装**只调一次**，结果存进一个 `Map`，所有段落共用：
 
 ```ts
-private 取这次的变量(): Map<string, string | undefined> {
-  return new Map([...this.变量们].map(([名字, 取值]) => [名字, 取值()]))
+private resolveVariables(): Map<string, string | undefined> {
+  return new Map([...this.variables].map(([name, provide]) => [name, provide()]))
 }
 ```
 
@@ -283,7 +283,7 @@ private 取这次的变量(): Map<string, string | undefined> {
 | 变量存哪 | `Map<string, string \| undefined>` | `Record<string, string \| undefined>`（普通对象） |
 | 取值函数的入参 | 无 | `(context: AssembleContext) => string \| undefined`，能看到是哪个 agent、哪个 scope |
 | 谁能改 | 只有注册者 | 组装是 waterfall，插件可以在最后改写整个 `variables` |
-| 插值发生在哪 | `组装()` 里 | 独立的 `renderPrompt(assembly)`，**assembly 里的段落是没插值的** |
+| 插值发生在哪 | `assemble()` 里 | 独立的 `renderPrompt(assembly)`，**assembly 里的段落是没插值的** |
 
 第一处差别里藏着一个很值得看的细节。dsh 的 `variables` 是普通对象，所以它必须写这一行：
 

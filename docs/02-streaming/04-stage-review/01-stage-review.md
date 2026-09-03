@@ -9,7 +9,7 @@
 printf '解释 agent\n' | node --import tsx src/index.ts
 # [ 548ms] "agent "   [ 742ms] "是能"   [ 941ms] "自己调用"  ...
 
-# ② 连接被掐（服务器 destroy / 网络断）
+# ② 连接被掐（server destroy / 网络断）
 # [本轮中断，已丢弃] terminated
 
 # ③ 干净结束但缺 [DONE]——最阴的一种

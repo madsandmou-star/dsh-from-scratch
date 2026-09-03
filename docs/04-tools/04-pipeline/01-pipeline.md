@@ -15,12 +15,12 @@
 
 关键在于：**这四件事没有一件属于某个具体工具。** 它们是横切的——每加一个工具就要重新想一遍，还很容易漏（我们已经漏了五个工具的超时）。
 
-把它们塞进每个工具里，是四份重复；塞进 `跑一个turn()` 里，是把 agent 循环变成一个什么都管的大函数。**正确的位置是两者之间：一条所有工具都要走的管线。**
+把它们塞进每个工具里，是四份重复；塞进 `runTurn()` 里，是把 agent 循环变成一个什么都管的大函数。**正确的位置是两者之间：一条所有工具都要走的管线。**
 
 ## 三段：执行前 / 执行 / 执行后
 
 ```ts
-export async function 执行工具(名字, 参数JSON, 护栏们, 超时毫秒): Promise<string>
+export async function runTool(name, rawArguments, guards, timeoutMs): Promise<string>
 ```
 
 流程是：找工具 → 解析参数 → **执行前**（放行/拒绝）→ **执行**（带超时和取消）→ **执行后**（加工结果）。
@@ -34,17 +34,17 @@ export async function 执行工具(名字, 参数JSON, 护栏们, 超时毫秒):
 中间那段是"环绕"而不是"之间"，这一点最容易做错。超时不是"执行前设个闹钟、执行后关掉"，而是**必须持有那次执行本身**才能中止它。
 
 ```ts
-export interface 护栏 {
-  名字: string
-  执行前?(上下文: 执行上下文): Promise<执行前决定> | 执行前决定
-  执行后?(上下文: 执行上下文, 结果: string): Promise<string> | string
+export interface Guard {
+  name: string
+  before?(context: ToolCall): Promise<PreDecision> | PreDecision
+  after?(context: ToolCall, result: string): Promise<string> | string
 }
 ```
 
 三个钩子都是可选的，每层只挂自己关心的那个。装配写在一个数组里：
 
 ```ts
-const 护栏们 = [记账(config.记账), 只读模式(config.只读), 输出兜底()]
+const guards = [accounting(config.accounting), readOnlyGuard(config.readOnly), outputBackstop()]
 ```
 
 **换一套护栏不用改任何工具，也不用改 agent 循环。** 这就是抽出来的全部意义。
@@ -53,15 +53,15 @@ const 护栏们 = [记账(config.记账), 只读模式(config.只读), 输出兜
 
 ```ts
 try {
-  决定 = await 一层.执行前(上下文)
-} catch (错误) {
-  return { 放行: false, 理由: `护栏「${一层.名字}」自己出错了：${...}` }
+  decision = await guard.before(context)
+} catch (error) {
+  return { allow: false, reason: `Guard「${guard.name}」自己出错了：${...}` }
 }
 ```
 
 ```
 ── ⑥ 护栏自己出错 → 失败即拒绝 ──
-错误：护栏「坏掉的护栏」自己出错了：我自己炸了
+error：Guard「brokenGuard」自己出错了：我自己炸了
 ```
 
 一个护栏自己抛异常，结果必须是**拒绝**，不能是放行。理由很直接：**护栏坏掉的时候，"什么都不拦"是最糟的那个结果**。
@@ -76,7 +76,7 @@ dsh 把这条写得更狠。它的 `tools/pre-execute` 有三档决定：allow /
 
 ```
 ── ⑦ 执行后钩子出错 → 结果照常返回 ──
-[护栏 坏掉的记账 的执行后钩子出错，已忽略] 记账炸了
+[Guard 坏掉的记账 的执行后钩子出错，已忽略] 记账炸了
    1: hello
 ```
 
@@ -105,13 +105,13 @@ dsh 同样的分法：`tools/result` 那一档的 JSDoc 写着 `Listener failure
 所以管线要补一句：
 
 ```ts
-if (控制器.signal.aborted) {
-  结果 = `错误：工具 ${名字} 超过了 ${超时毫秒}ms 的时间上限，已被中止。\n[中止前拿到的输出]\n${结果}`
+if (controller.signal.aborted) {
+  result = `error：工具 ${name} 超过了 ${timeoutMs}ms 的时间上限，已被中止。\n[中止前拿到的输出]\n${result}`
 }
 ```
 
 ```
-错误：工具 bash 超过了 1000ms 的时间上限，已被中止。
+error：工具 bash 超过了 1000ms 的时间上限，已被中止。
 [中止前拿到的输出]
 (没有输出)
 [被信号杀掉：SIGKILL]
@@ -141,12 +141,12 @@ dsh 也是这两层：shell 的 `timeoutMs` 在提供者（`bash-local`）里，
 bash 现在同时接两个信号：
 
 ```ts
-const 被外层中止 = () => { 子进程.kill('SIGKILL') }
-signal.addEventListener('abort', 被外层中止, { once: true })
+const onOuterAbort = () => { child.kill('SIGKILL') }
+signal.addEventListener('abort', onOuterAbort, { once: true })
 ...
-子进程.on('close', () => {
-  clearTimeout(定时器)
-  signal.removeEventListener('abort', 被外层中止)   // ← 这一行不能少
+child.on('close', () => {
+  clearTimeout(timer)
+  signal.removeEventListener('abort', onOuterAbort)   // ← 这一行不能少
   ...
 })
 ```
@@ -165,7 +165,7 @@ signal.addEventListener('abort', 被外层中止, { once: true })
 
 **"环绕"就是 Python 的装饰器。** 一个包装器手里握着"调用原函数"这个动作本身，所以它可以选择不调、调完改结果、或者在调用期间盯着它。我们管线里那三行 `setTimeout` / `await execute` / `clearTimeout` 就是写死的环绕；dsh 的区别是这个位置**对插件开放**，就像给一个函数叠多个装饰器。
 
-**`AbortSignal` 就是一个遥控停止按钮**，分两半：`AbortController` 是**按钮**（`abort('理由')`），`controller.signal` 是**接收器**，交给干活的人自己盯着。注意它是**合作式**的——Node 不会替你掐掉任何东西，是干活的人**答应了**要盯着这个按钮。他不盯，按了也没用（4.3 的 ReDoS 就是没人盯的情况）。
+**`AbortSignal` 就是一个遥控停止按钮**，分两半：`AbortController` 是**按钮**（`abort('reason')`），`controller.signal` 是**接收器**，交给干活的人自己盯着。注意它是**合作式**的——Node 不会替你掐掉任何东西，是干活的人**答应了**要盯着这个按钮。他不盯，按了也没用（4.3 的 ReDoS 就是没人盯的情况）。
 
 麻烦在于：一次工具调用，**同时有两个人想按停止按钮**——用户（Ctrl-C）和超时包装器。而 `execute(args, signal)` **只收一个 signal**。
 
@@ -175,7 +175,7 @@ signal.addEventListener('abort', 被外层中止, { once: true })
 
 ```
 === 场景 A：包装器直接把 signal 换成自己的 ===
-  被打断了：超时 3 秒（等了 3004ms）
+  被打断了：timedOut 3 秒（等了 3004ms）
   用户那个按钮按了吗？ 按了，但没人在听
 
 === 场景 B：注册表把两个熔在一起 ===
@@ -196,7 +196,7 @@ try { await tool.execute(exec.arguments, exec) }
 finally { fused.dispose(); exec.signal = wrapperSignal }           // 用完还原
 ```
 
-"熔合"就是标准库 `AbortSignal.any([甲, 乙])` 的意思——**这两个里任何一个响了，我就响**。dsh 手写了一个等价的 `fuseToolSignals()`，多做了三件事：保住 `reason`（好区分"是谁按的"）、用完 `dispose()` 摘掉监听器（4.4 前面讲过的那类泄漏）、以及在 `caller === wrapper` 时直接短路不熔。
+"熔合"就是标准库 `AbortSignal.any([a, b])` 的意思——**这两个里任何一个响了，我就响**。dsh 手写了一个等价的 `fuseToolSignals()`，多做了三件事：保住 `reason`（好区分"是谁按的"）、用完 `dispose()` 摘掉监听器（4.4 前面讲过的那类泄漏）、以及在 `caller === wrapper` 时直接短路不熔。
 
 注意注册表**并不禁止**包装器换 signal——换是正当需求。它只是在最后一刻**加回来**，所以包装器**没办法**把调用方的取消权拿掉，哪怕它想。这也是为什么规则写成"只准改 `exec.signal` 这一样东西"：换 signal 是唯一有正当理由的改动，而这一样又被兜住了；工具名、参数、调用身份全部只读。
 
@@ -209,9 +209,9 @@ finally { fused.dispose(); exec.signal = wrapperSignal }           // 用完还�
 ## 规矩五：通用护栏是兜底，不是替代品
 
 ```ts
-执行后(上下文, 结果) {
-  if (结果.length <= 输出兜底上限) return 结果
-  return `${结果.slice(0, 输出兜底上限)}\n\n[${上下文.工具名} 的输出超过 ${输出兜底上限} 字符，已由统一护栏截断]`
+after(context, result) {
+  if (result.length <= OUTPUT_BACKSTOP_CHARS) return result
+  return `${result.slice(0, OUTPUT_BACKSTOP_CHARS)}\n\n[${context.toolName} 的输出超过 ${OUTPUT_BACKSTOP_CHARS} ch，已由统一护栏截断]`
 }
 ```
 
@@ -223,24 +223,24 @@ finally { fused.dispose(); exec.signal = wrapperSignal }           // 用完还�
 
 ```
 ── ⑤ 执行后兜底：一个忘了自己截断的工具 ──
-[记账] 没截断的工具 耗时 0ms，输出 200000 字符
-xxxxxxxx…（共 60034 字符）
+[accounting] 没截断的工具 耗时 0ms，输出 200000 ch
+xxxxxxxx…（共 60034 ch）
 ```
 
-顺带看一眼记账那行：它报的是 **200000**，因为 `记账` 在数组里排在 `输出兜底` 前面，看到的是**没被截断的原始输出**。这正是记账想要的——你要知道工具**真的**产了多少，而不是截断后剩多少。**执行后钩子的顺序决定每一层看到什么**，这是排列数组时要想清楚的事。
+顺带看一眼记账那行：它报的是 **200000**，因为 `accounting` 在数组里排在 `outputBackstop` 前面，看到的是**没被截断的原始输出**。这正是记账想要的——你要知道工具**真的**产了多少，而不是截断后剩多少。**执行后钩子的顺序决定每一层看到什么**，这是排列数组时要想清楚的事。
 
 ## 权限的座位已经留好了
 
 只读模式是这一课唯一一个真的"权限"，但它已经足以说明形状：
 
 ```
-==================== 只读 = false ====================
-  [工具] edit(...)   → 已修改 add.mjs（替换了 14 字符 → 14 字符）
+==================== readOnly = false ====================
+  [工具] edit(...)   → 已修改 add.mjs（替换了 14 ch → 14 ch）
 模型 > 改好了。
 --- add.mjs 现在 ---  return a + b
 
-==================== 只读 = true ====================
-  [工具] edit(...)   → 错误：被护栏「只读模式」拒绝：当前是只读模式，edit 不能用。
+==================== readOnly = true ====================
+  [工具] edit(...)   → error：被护栏「readOnlyGuard」拒绝：当前是只读模式，edit 不能用。
                         你可以用 read / glob / grep 查看，但不能修改任何东西。
 模型 > 我只能看不能改，这里应该把减号换成加号。
 --- add.mjs 现在 ---  return a - b
@@ -252,18 +252,18 @@ xxxxxxxx…（共 60034 字符）
 
 dsh 里对应的东西叫 **plan 模式**，是一整个包（`dsh/packages/plan/`），而且做得比我们彻底：它是**被记进会话日志的状态**，不是一个进程内的布尔值。为什么必须进日志？因为「**模型可见 ⟺ 已落日志**」——模型知道自己在 plan 模式（这影响它怎么回答），那么重放这个会话时就必须能重建出这个事实。阶段 6 讲会话落盘时会正面处理这条规矩。
 
-至于真正的"问用户"式审批，阶段 15 才做。但**座位已经在这里了**：它就是又一个 `执行前` 钩子。
+至于真正的"问用户"式审批，阶段 15 才做。但**座位已经在这里了**：它就是又一个 `before` 钩子。
 
 ## 一个我们补不掉的洞，再确认一次
 
 4.3 说过：ReDoS 的洞，统一超时救不了。现在管线有超时了，实测一次：
 
 ```
-管线超时设成 1000ms，跑 grep (a+)+$ …
-[退出码 124 —— 124 表示 10 秒后仍未返回]
+管线超时设成 1000ms，run grep (a+)+$ …
+[code 124 —— 124 表示 10 秒后仍未返回]
 ```
 
-**超时设了 1 秒，10 秒后还没回来。** 因为 `setTimeout` 要等事件循环，而正则把事件循环占死了——`控制器.abort()` 那行代码根本没机会执行。
+**超时设了 1 秒，10 秒后还没回来。** 因为 `setTimeout` 要等事件循环，而正则把事件循环占死了——`controller.abort()` 那行代码根本没机会执行。
 
 **这不是管线设计得不好，是"在同一个线程里做超时"这件事的物理上限。** 出路只有两条，都是把工作挪出这个线程：换个不回溯的引擎（ripgrep）、或者塞进子进程/worker（这样 SIGKILL 才有意义）。dsh 两条都占了。
 

@@ -17,9 +17,9 @@ export interface Config {
   /** 每次对话开头那条 system 消息的内容。 */
   systemPrompt: string
   /** 只读模式：拒绝 write / edit / bash（4.4 的护栏）。默认关。 */
-  只读?: boolean
+  readOnly?: boolean
   /** 把每次工具调用的耗时和输出大小打到 stderr（4.4 的护栏）。默认关。 */
-  记账?: boolean
+  accounting?: boolean
 }
 
 // ESM 里没有 CommonJS 的 __dirname。取代它的是 import.meta.url：
@@ -37,11 +37,11 @@ const CONFIG_URL = process.env['DSH_LEARN_CONFIG'] === undefined
  * 这就是 4.2 讲的 request → spec 那一步：**文件里能写什么**（{@link Config}，可选项一堆）
  * 和**运行时实际生效的是什么**（这里，全都必填）是两个类型，中间隔一次显式的解析。
  */
-export interface 生效配置 extends Config {
+export interface ResolvedConfig extends Config {
   /** 从 {@link Config.apiKeyEnv} 指定的环境变量里读出来的密钥。 */
   apiKey: string
-  只读: boolean
-  记账: boolean
+  readOnly: boolean
+  accounting: boolean
 }
 
 /**
@@ -50,7 +50,7 @@ export interface 生效配置 extends Config {
  * 而不是等模型返回 401 时才让人去猜。
  * @returns 一次模型调用需要的全部连接事实，可选项已填默认值。
  */
-export function loadConfig(): 生效配置 {
+export function loadConfig(): ResolvedConfig {
   let raw: string
   try {
     raw = readFileSync(CONFIG_URL, 'utf8')
@@ -86,5 +86,5 @@ export function loadConfig(): 生效配置 {
   // 以及 DeepSeek 适配器的 apiKeyEnv 字段（packages/llm/llm-deepseek/src/adapter.ts）。
   // 这两个开关是**可选**的：老配置文件不写它们照样能用，缺省即关闭。
   // 默认值在这里显式取出来，而不是留给每个用到它的地方各自 `?? false`（4.2 讲过为什么）。
-  return { ...config, apiKey, 只读: config.只读 ?? false, 记账: config.记账 ?? false }
+  return { ...config, apiKey, readOnly: config.readOnly ?? false, accounting: config.accounting ?? false }
 }

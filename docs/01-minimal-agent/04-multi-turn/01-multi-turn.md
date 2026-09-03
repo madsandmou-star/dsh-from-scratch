@@ -92,7 +92,7 @@ console.dir(messages, { depth: null })
 ## 这个循环和 agent loop 差在哪
 
 ```
-收输入 → 组装上下文 → 调模型 → 处理结果 → 回到开头
+收输入 → assembleContext → 调模型 → 处理结果 → 回到开头
 ```
 
 这个骨架和 dsh 的 agent loop 是同一个形状。差别全在"处理结果"那一步：

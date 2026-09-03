@@ -257,11 +257,11 @@ src/types.ts       # 改：ToolCall、tool role
 
 - **5.4 [谁能替换整个 prompt](docs/05-system-prompt/04-complete/01-complete.md)**
   - 痛点：subagent 不需要通用身份；preset 想换掉 persona 却只能"加"
-  - `替换()` 是另一个方法而不是 `force: true`——两种意图两个名字
-  - 具名槽位：导出的 `PERSONA段名` 常量才是"替换而不是重复"的关键
+  - `replace()` 是另一个方法而不是 `force: true`——两种意图两个名字
+  - 具名槽位：导出的 `PERSONA_SECTION` 常量才是"替换而不是重复"的关键
   - `完整: true` 换掉的是哪些段进 prompt，不是要不要处理模板
   - 两段都说"我是全部"就拒绝启动；debug 清单不许说谎
-  - `完整` 与 `抑制上下文` 正交；对照 dsh 的作用域遮蔽与自动撤销
+  - `complete` 与 `suppressContext` 正交；对照 dsh 的作用域遮蔽与自动撤销
 
 - **5.5 [阶段验收](docs/05-system-prompt/05-stage-review/01-stage-review.md)**
   - 一条主线：五节课是同一个问题链上的四次分叉

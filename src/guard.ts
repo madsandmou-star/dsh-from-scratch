@@ -2,14 +2,14 @@
 //
 // 每一层都只管一件事，互相不知道对方存在——这正是把三段管线抽出来的目的。
 
-import type { 护栏 } from './pipeline.ts'
-import type { 提示段 } from './system-prompt.ts'
+import type { Guard } from './pipeline.ts'
+import type { PromptSection } from './system-prompt.ts'
 
 /** 任何工具的输出，最终喂给模型之前的硬上限。 */
-const 输出兜底上限 = 60_000
+const OUTPUT_BACKSTOP_CHARS = 60_000
 
 /** 哪些工具会改变外部世界。只读模式拦的就是它们。 */
-const 会写东西的工具 = new Set(['write', 'edit', 'bash'])
+const MUTATING_TOOLS = new Set(['write', 'edit', 'bash'])
 
 /**
  * 只读模式要告诉模型的话。
@@ -17,14 +17,14 @@ const 会写东西的工具 = new Set(['write', 'edit', 'bash'])
  * 5.1 之前这句话只活在**拒绝理由**里——也就是说模型必须先试着改一次文件、被拒绝，
  * 才知道自己在只读模式。这是最典型的"话放错了地方"：一条**限制**必须在模型**做决定之前**
  * 就被它看到，而不是之后。
- * @param 开启 - 来自配置的开关。
+ * @param enabled - 来自配置的开关。
  * @returns 一段提示；关闭时它是空的，组装时会被丢掉。
  */
-export function 只读模式提示(开启: boolean): 提示段 {
+export function readOnlyNotice(enabled: boolean): PromptSection {
   return {
-    名字: 'guard:read-only',
-    顺序: 110,
-    文本: () => (开启
+    name: 'guard:read-only',
+    order: 110,
+    text: () => (enabled
       ? '当前是**只读模式**：write / edit / bash 都不可用，调用它们会被直接拒绝。'
         + '你可以用 read / glob / grep 查看代码，并把建议的改法说出来，但不要试图自己动手。'
       : ''),
@@ -38,35 +38,35 @@ export function 只读模式提示(开启: boolean): 提示段 {
  * 装在 CI 里跑代码审查时要只读，装在你自己机器上改代码时不要。
  * dsh 把"只能看不能动"做成了一整个包（`dsh/packages/plan/`，plan 模式），
  * 而且它是被**记进会话日志的状态**，不是一个进程内的布尔值。
- * @param 开启 - 来自配置的开关。
+ * @param enabled - 来自配置的开关。
  * @returns 一层护栏；关闭时它什么也不做。
  */
-export function 只读模式(开启: boolean): 护栏 {
+export function readOnlyGuard(enabled: boolean): Guard {
   return {
-    名字: '只读模式',
-    执行前(上下文) {
-      if (!开启 || !会写东西的工具.has(上下文.工具名)) return { 放行: true }
+    name: '只读模式',
+    before(call) {
+      if (!enabled || !MUTATING_TOOLS.has(call.toolName)) return { allow: true }
       return {
-        放行: false,
-        理由: `当前是只读模式，${上下文.工具名} 不能用。你可以用 read / glob / grep 查看，但不能修改任何东西。`,
+        allow: false,
+        reason: `当前是只读模式，${call.toolName} 不能用。你可以用 read / glob / grep 查看，但不能修改任何东西。`,
       }
     },
   }
 }
 
 /**
- * 输出兜底截断：不管哪个工具，都不许把超过上限的文本塞进上下文。
+ * 输出兜底截断：不管哪个工具，都不许把超过上限的文本塞进call。
  *
  * 每个工具**自己**的截断（read 的 50KB、bash 的末尾 30KB、grep 的 100 条）都保留：
  * 那些是懂行的截断，知道该留哪一头。这一层只是兜底——**通用护栏是最后一道，不是替代品**。
  * @returns 一层护栏。
  */
-export function 输出兜底(): 护栏 {
+export function outputBackstop(): Guard {
   return {
-    名字: '输出兜底',
-    执行后(上下文, 结果) {
-      if (结果.length <= 输出兜底上限) return 结果
-      return `${结果.slice(0, 输出兜底上限)}\n\n[${上下文.工具名} 的输出超过 ${输出兜底上限} 字符，已由统一护栏截断]`
+    name: '输出兜底',
+    after(call, result) {
+      if (result.length <= OUTPUT_BACKSTOP_CHARS) return result
+      return `${result.slice(0, OUTPUT_BACKSTOP_CHARS)}\n\n[${call.toolName} 的输出超过 ${OUTPUT_BACKSTOP_CHARS} 字符，已由统一护栏截断]`
     },
   }
 }
@@ -77,32 +77,32 @@ export function 输出兜底(): 护栏 {
  * 这是这门课到现在最有用的一个 debug 开关：agent 变慢或者变贵的时候，
  * 十有八九是某一个工具在反复吐大块输出，而在此之前你根本看不见这件事。
  * 打到 stderr 而不是 stdout，是为了不和给用户看的对话混在一起。
- * @param 开启 - 来自配置的开关。
+ * @param enabled - 来自配置的开关。
  * @returns 一层护栏；关闭时它什么也不做。
  */
-export function 记账(开启: boolean): 护栏 {
-  const 开始时刻 = new Map<执行上下文键, number>()
+export function accounting(enabled: boolean): Guard {
+  const startedAt = new Map<CallKey, number>()
   return {
-    名字: '记账',
-    执行前(上下文) {
-      if (开启) 开始时刻.set(上下文, Date.now())
-      return { 放行: true }
+    name: '记账',
+    before(call) {
+      if (enabled) startedAt.set(call, Date.now())
+      return { allow: true }
     },
-    执行后(上下文, 结果) {
-      const 开始 = 开始时刻.get(上下文)
-      if (开始 !== undefined) {
-        开始时刻.delete(上下文)
-        console.error(`[记账] ${上下文.工具名} 耗时 ${Date.now() - 开始}ms，输出 ${结果.length} 字符`)
+    after(call, result) {
+      const started = startedAt.get(call)
+      if (started !== undefined) {
+        startedAt.delete(call)
+        console.error(`[记账] ${call.toolName} 耗时 ${Date.now() - started}ms，输出 ${result.length} 字符`)
       }
-      return 结果
+      return result
     },
   }
 }
 
 /**
- * 记账用的 Map 键：一次调用的上下文对象本身。
+ * 记账用的 Map 键：一次调用的call对象本身。
  *
  * 用对象当键而不是工具名——同一个工具可能在一轮里被调用多次（3.4 讲过模型可以
  * 一次要求好几个工具），用名字当键会互相覆盖。
  */
-type 执行上下文键 = object
+type CallKey = object

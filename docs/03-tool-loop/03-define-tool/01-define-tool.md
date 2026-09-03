@@ -34,21 +34,21 @@ export interface Tool {
 所以 `read` 工具的 `execute` 里有两道关：
 
 ```ts
-function 取字符串(args, 字段名) {
-  const 值 = args[字段名]
-  if (typeof 值 !== 'string' || 值 === '') {
-    throw new Error(`参数 ${字段名} 必须是非空字符串，实际收到：${JSON.stringify(值)}`)
+function requireString(args, field) {
+  const value = args[field]
+  if (typeof value !== 'string' || value === '') {
+    throw new Error(`args ${field} 必须是非空字符串，实际收到：${JSON.stringify(value)}`)
   }
-  return 值
+  return value
 }
 
-function 解析路径(相对路径) {
-  const 绝对路径 = resolve(工作目录, 相对路径)
-  const 相对于工作目录 = relative(工作目录, 绝对路径)
-  if (相对于工作目录.startsWith('..') || isAbsolute(相对于工作目录)) {
-    throw new Error(`路径越界：${相对路径} 解析后落在工作目录之外`)
+function resolveInsideCwd(relPath) {
+  const absolute = resolve(CWD, relPath)
+  const relativeToCwd = relative(CWD, absolute)
+  if (relativeToCwd.startsWith('..') || isAbsolute(relativeToCwd)) {
+    throw new Error(`路径越界：${relPath} 解析后落在工作目录之外`)
   }
-  return 绝对路径
+  return absolute
 }
 ```
 
@@ -57,8 +57,8 @@ function 解析路径(相对路径) {
 ```
 ① 正常路径      →    1: // 阶段 1.3：先给"消息"一个类型。
 ② 路径越界      → 拒绝：路径越界：../../../etc/passwd 解析后落在工作目录之外
-③ 参数类型不对  → 拒绝：参数 path 必须是非空字符串，实际收到：42
-④ 缺参数        → 拒绝：参数 path 必须是非空字符串，实际收到：undefined
+③ 参数类型不对  → 拒绝：args path 必须是非空字符串，实际收到：42
+④ 缺参数        → 拒绝：args path 必须是非空字符串，实际收到：undefined
 ```
 
 > **路径越界那道检查的写法值得记**：不要用字符串匹配 `includes('..')`——`src/..%2f..` 之类的写法能绕过。正确做法是 **`resolve` 之后再 `relative`，看结果是不是以 `..` 开头**。让路径库替你处理规范化，你只判断最终落点。
@@ -72,7 +72,7 @@ function 解析路径(相对路径) {
 ```
    1: // 阶段 3.3：工具的定义与执行。
    2: //
-   3: // 一个工具是四样东西：名字、描述、参数格式、执行函数。
+   3: // 一个工具是四样东西：name、描述、参数格式、执行函数。
 ```
 
 人读文件不需要行号，**模型需要**——后续的 `edit` 工具要靠行号定位，模型引用某一行时也要它。
@@ -80,23 +80,23 @@ function 解析路径(相对路径) {
 还有一个 50KB 的截断上限。理由很直接：**工具输出会进入下一轮请求的 messages 数组**。一个 5MB 的文件塞进去，要么爆上下文，要么烧掉一大笔钱。截断时明确告诉模型发生了什么：
 
 ```
-[文件过大，已截断到 50000 字节，共 1247 行]
+[文件过大，已截断到 50000 字节，共 1247 line]
 ```
 
 **不要静默截断。** 模型看到这句话会知道"我只看到了一部分"，看不到就会以为文件就这么长。
 
 ## 执行失败要变成文本，不是异常
 
-`index.ts` 里的 `执行工具()` 把三类失败都转成返回值：
+`index.ts` 里的 `runTool()` 把三类失败都转成返回值：
 
 ```ts
-if (tool === undefined) return `错误：不存在名为 ${名字} 的工具。可用工具：${...}`
+if (tool === undefined) return `error：不存在名为 ${name} 的工具。可用工具：${...}`
 
-try { 参数 = JSON.parse(参数JSON) }
-catch (error) { return `错误：参数不是合法的 JSON（${...}）。收到的原文：${参数JSON}` }
+try { args = JSON.parse(rawArguments) }
+catch (error) { return `error：参数不是合法的 JSON（${...}）。收到的原文：${rawArguments}` }
 
-try { return await tool.execute(参数) }
-catch (error) { return `错误：${error.message}` }
+try { return await tool.execute(args) }
+catch (error) { return `error：${error.message}` }
 ```
 
 **为什么不抛异常？** 因为这些失败的正确读者是**模型**，不是我们的错误处理代码。把"路径越界"作为 tool 结果喂回去，模型会换一个路径重试；抛异常打断整个 agent，用户看到的是一个崩掉的会话。
@@ -108,7 +108,7 @@ catch (error) { return `错误：${error.message}` }
 3.1 撞墙时发现"服务器根本没收到 tools 字段"。补上：
 
 ```ts
-body: JSON.stringify({ model: config.model, messages, stream: true, tools: 转成wire格式(tools) })
+body: JSON.stringify({ model: config.model, messages, stream: true, tools: toWireTools(tools) })
 ```
 
 服务器侧确认：
@@ -116,10 +116,10 @@ body: JSON.stringify({ model: config.model, messages, stream: true, tools: 转�
 ```
 【服务器收到 tools】1 个：read
 【描述前 40 字】读取一个文本文件的内容，返回带行号的文本。当用户询问某个文件里有什么、某段代码怎…
-【参数 schema】{"type":"object","properties":{"path":{"type":"string",...}},"required":["path"]}
+【args schema】{"type":"object","properties":{"path":{"type":"string",...}},"required":["path"]}
 ```
 
-`转成wire格式()` 那个函数只有五行，但它是 1.2 讲的"内部词汇 ≠ wire 格式"的第一次落地：**我们的 `Tool` 接口和 OpenAI 的 JSON 结构是两回事**，中间隔一次翻译。今天这个翻译很薄，阶段 8 换供应商时它会变厚。
+`toWireTools()` 那个函数只有五行，但它是 1.2 讲的"内部词汇 ≠ wire 格式"的第一次落地：**我们的 `Tool` 接口和 OpenAI 的 JSON 结构是两回事**，中间隔一次翻译。今天这个翻译很薄，阶段 8 换供应商时它会变厚。
 
 ## 跑一次
 
@@ -128,7 +128,7 @@ body: JSON.stringify({ model: config.model, messages, stream: true, tools: 转�
           1: // 阶段 3.3：工具的定义与执行。
           2: //
           ...
-       …（共 108 行，3.4 会把它喂回给模型）
+       …（共 108 line，3.4 会把它喂回给模型）
 ```
 
 注意那两块碎片 `{"path": "src/tool` + `.ts"}` 被 3.2 的累积器正确拼成了完整参数——**这一课是站在上一课的成果上跑起来的**。

@@ -21,21 +21,21 @@ index=0  id=—         name=—     args+="c/llm.ts\"}"
 2. **`arguments` 是唯一需要拼接的字段**，一截一截来。
 3. **多个工具交错**——第 3 帧属于工具 0，第 4 帧属于工具 1。`index` 是唯一的归位钥匙。
 
-第 1 条是最容易写错的地方：如果你直接 `id: 增量.id`，第一块攒下的 id 会被第二块的 `undefined` 冲掉。
+第 1 条是最容易写错的地方：如果你直接 `id: delta.id`，第一块攒下的 id 会被第二块的 `undefined` 冲掉。
 
 ## 累积器
 
 `src/llm.ts` 里新增的部分：
 
 ```ts
-const 攒着的工具 = new Map<number, { id: string, name: string, args: string }>()
+const pendingCalls = new Map<number, { id: string, name: string, args: string }>()
 
-for (const 增量 of choice?.delta.tool_calls ?? []) {
-  const 已有 = 攒着的工具.get(增量.index) ?? { id: '', name: '', args: '' }
-  攒着的工具.set(增量.index, {
-    id: 增量.id ?? 已有.id,                              // 只在第一块有，别覆盖
-    name: 增量.function?.name ?? 已有.name,
-    args: 已有.args + (增量.function?.arguments ?? ''),   // 唯一需要拼接的
+for (const delta of choice?.delta.tool_calls ?? []) {
+  const prev = pendingCalls.get(delta.index) ?? { id: '', name: '', args: '' }
+  pendingCalls.set(delta.index, {
+    id: delta.id ?? prev.id,                              // 只在第一块有，别覆盖
+    name: delta.function?.name ?? prev.name,
+    args: prev.args + (delta.function?.arguments ?? ''),   // 唯一需要拼接的
   })
 }
 ```
@@ -54,10 +54,10 @@ for (const 增量 of choice?.delta.tool_calls ?? []) {
 唯一可靠的信号是**协议给的**：流结束了。所以拼装完成的判断放在循环之外：
 
 ```ts
-if (!见过DONE) throw new Error('流在收到 [DONE] 之前就结束了：这次回复不完整，不可信')
+if (!sawDone) throw new Error('流在收到 [DONE] 之前就结束了：这次回复不完整，不可信')
 
-if (攒着的工具.size > 0) {
-  const calls = [...攒着的工具.entries()]
+if (pendingCalls.size > 0) {
+  const calls = [...pendingCalls.entries()]
     .sort(([a], [b]) => a - b)          // 按 index 排序，让调用顺序稳定可复现
     .map(([, call]) => ({ id: call.id, name: call.name, arguments: call.args }))
   yield { type: 'tool-calls', calls }

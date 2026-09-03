@@ -9,12 +9,12 @@
 **"缺失"是观测不到的。** 你没法在某一刻断言"后面不会再来 `[DONE]` 了"——除非流已经结束。所以代码结构必然是：
 
 ```ts
-let 见过DONE = false
+let sawDone = false
 for await (const payload of parseSse(response.body)) {
-  if (payload === '[DONE]') { 见过DONE = true; break }
+  if (payload === '[DONE]') { sawDone = true; break }
   ...
 }
-if (!见过DONE) throw new Error('流在收到 [DONE] 之前就结束了')   // ← 回头看
+if (!sawDone) throw new Error('流在收到 [DONE] 之前就结束了')   // ← 回头看
 ```
 
 **记一个标记 → 等循环退出 → 回头检查。** 所有"必须出现的终止标记"类协议都是这个形状。dsh 的 `sse.ts` 同构：`yield data; if (data === DONE) return`，循环外 `throw new LlmError(..., 'STREAM_CLOSED')`。
@@ -40,7 +40,7 @@ if (!见过DONE) throw new Error('流在收到 [DONE] 之前就结束了')   // 
 ```sh
 timeout 8 sh -c "printf '你好\n' | node --import tsx src/index.ts"
 # Terminated
-# [8 秒后被强行掐断，退出码 143]
+# [8 秒后被强行掐断，code 143]
 ```
 
 **挂死。** 这是本课程当前的一个已知缺口。

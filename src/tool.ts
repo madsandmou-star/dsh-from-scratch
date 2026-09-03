@@ -5,7 +5,7 @@
 
 import { spawn } from 'node:child_process'
 import { readFile, writeFile, mkdir, readdir, stat } from 'node:fs/promises'
-import type { 提示段 } from './system-prompt.ts'
+import type { PromptSection } from './system-prompt.ts'
 import { dirname } from 'node:path'
 import { resolve, relative, isAbsolute } from 'node:path'
 
@@ -35,28 +35,28 @@ export interface Tool {
    * bash 就是反例：首行可能是 `[stderr]`，真正有用的是最后那几行。
    * 谁最清楚自己的输出长什么样，谁就该负责它怎么显示。
    * dsh 把这条做成了工具定义的一部分（`presentCall` / `presentResult`），阶段 12 讲。
-   * @param 结果 - `execute` 的返回值。
+   * @param result - `execute` 的返回值。
    * @returns 一行摘要。
    */
-  摘要?(结果: string): string
+  summarize?(result: string): string
 }
 
 /** 工作目录：所有文件访问都被限制在它之内。 */
-const 工作目录 = process.cwd()
+const CWD = process.cwd()
 
 /**
  * 把模型给的参数里的一个字段取出来并确认它是非空字符串。
  * 模型生成的 JSON 是不可信输入：字段可能缺、可能是数字、可能是 null。
  * @param args - 已解析的参数对象。
- * @param 字段名 - 要取的字段。
+ * @param field - 要取的字段。
  * @returns 该字段的字符串值。
  */
-function 取字符串(args: Record<string, unknown>, 字段名: string): string {
-  const 值 = args[字段名]
-  if (typeof 值 !== 'string' || 值 === '') {
-    throw new Error(`参数 ${字段名} 必须是非空字符串，实际收到：${JSON.stringify(值)}`)
+function requireString(args: Record<string, unknown>, field: string): string {
+  const value = args[field]
+  if (typeof value !== 'string' || value === '') {
+    throw new Error(`参数 ${field} 必须是非空字符串，实际收到：${JSON.stringify(value)}`)
   }
-  return 值
+  return value
 }
 
 /**
@@ -64,20 +64,20 @@ function 取字符串(args: Record<string, unknown>, 字段名: string): string 
  *
  * 模型完全可能生成 `../../../etc/passwd`——不是因为它有恶意，而是因为它在猜路径。
  * 这道检查属于"外部输入必须在边界上校验"那条规矩（阶段 0 学的）。
- * @param 相对路径 - 模型给的路径。
+ * @param displayPath - 模型给的路径。
  * @returns 工作目录之内的绝对路径。
  */
-function 解析路径(相对路径: string): string {
-  const 绝对路径 = resolve(工作目录, 相对路径)
-  const 相对于工作目录 = relative(工作目录, 绝对路径)
-  if (相对于工作目录.startsWith('..') || isAbsolute(相对于工作目录)) {
-    throw new Error(`路径越界：${相对路径} 解析后落在工作目录之外`)
+function resolveInsideCwd(displayPath: string): string {
+  const absolute = resolve(CWD, displayPath)
+  const relativeToCwd = relative(CWD, absolute)
+  if (relativeToCwd.startsWith('..') || isAbsolute(relativeToCwd)) {
+    throw new Error(`路径越界：${displayPath} 解析后落在工作目录之外`)
   }
-  return 绝对路径
+  return absolute
 }
 
 /** 一次最多读多少字节，防止一个大文件把上下文撑爆。 */
-const 最大字节数 = 50_000
+const MAX_READ_BYTES = 50_000
 
 /** 读文件工具。 */
 export const readTool: Tool = {
@@ -92,18 +92,18 @@ export const readTool: Tool = {
     required: ['path'],
   },
   async execute(args) {
-    const 路径 = 解析路径(取字符串(args, 'path'))
-    const 内容 = await readFile(路径, 'utf8')
+    const target = resolveInsideCwd(requireString(args, 'path'))
+    const content = await readFile(target, 'utf8')
 
     // 加行号：后续的 edit 工具要靠行号定位，而且模型引用某一行时也需要它。
     // 这是"工具输出是给模型看的"的一个具体例子——人读文件不需要行号，模型需要。
-    const 行 = 内容.split('\n')
-    const 带行号 = 行.map((行内容, i) => `${String(i + 1).padStart(4)}: ${行内容}`).join('\n')
+    const lines = content.split('\n')
+    const numbered = lines.map((lineText, i) => `${String(i + 1).padStart(4)}: ${lineText}`).join('\n')
 
-    if (带行号.length > 最大字节数) {
-      return `${带行号.slice(0, 最大字节数)}\n\n[文件过大，已截断到 ${最大字节数} 字节，共 ${行.length} 行]`
+    if (numbered.length > MAX_READ_BYTES) {
+      return `${numbered.slice(0, MAX_READ_BYTES)}\n\n[文件过大，已截断到 ${MAX_READ_BYTES} 字节，共 ${lines.length} 行]`
     }
-    return 带行号
+    return numbered
   },
 }
 
@@ -121,22 +121,22 @@ export const writeTool: Tool = {
     required: ['path', 'content'],
   },
   async execute(args) {
-    const 路径 = 解析路径(取字符串(args, 'path'))
-    const 内容 = args['content']
+    const target = resolveInsideCwd(requireString(args, 'path'))
+    const content = args['content']
     // content 可以是空字符串（清空文件是合法操作），所以不能用 取字符串。
-    if (typeof 内容 !== 'string') {
-      throw new Error(`参数 content 必须是字符串，实际收到：${JSON.stringify(内容)}`)
+    if (typeof content !== 'string') {
+      throw new Error(`参数 content 必须是字符串，实际收到：${JSON.stringify(content)}`)
     }
 
     // 覆盖是不可逆的，所以要把"覆盖了多少"报告给模型——它可能因此发现自己搞错了文件。
-    const 原有字节数 = await readFile(路径, 'utf8').then(内容 => 内容.length, () => undefined)
+    const previousChars = await readFile(target, 'utf8').then(content => content.length, () => undefined)
 
-    await mkdir(dirname(路径), { recursive: true })
-    await writeFile(路径, 内容, 'utf8')
+    await mkdir(dirname(target), { recursive: true })
+    await writeFile(target, content, 'utf8')
 
-    return 原有字节数 === undefined
-      ? `已创建 ${取字符串(args, 'path')}（${内容.length} 字符）`
-      : `已覆盖 ${取字符串(args, 'path')}（原 ${原有字节数} 字符 → 现 ${内容.length} 字符）`
+    return previousChars === undefined
+      ? `已创建 ${requireString(args, 'path')}（${content.length} 字符）`
+      : `已覆盖 ${requireString(args, 'path')}（原 ${previousChars} 字符 → 现 ${content.length} 字符）`
   },
 }
 
@@ -145,19 +145,19 @@ export const writeTool: Tool = {
  *
  * 报"出现了几次"不够——模型还得知道是哪几行，才能决定多带哪一段上下文。
  * 给模型的错误信息里应该带上它改正所需要的全部信息（dsh 的 `str_replace` 也这么做）。
- * @param 内容 - 文件全文。
- * @param 目标 - 要找的字面文本。
- * @returns 每一次出现的字符下标，从小到大。
+ * @param content - 文件全文。
+ * @param needle - 要找的字面文本。
+ * @returns 每一次出现的字符index，从小到大。
  */
-function 找出所有位置(内容: string, 目标: string): number[] {
-  const 位置们: number[] = []
-  let 起点 = 0
+function findAllOffsets(content: string, needle: string): number[] {
+  const offsets: number[] = []
+  let from = 0
   for (;;) {
-    const 位置 = 内容.indexOf(目标, 起点)
-    if (位置 < 0) return 位置们
-    位置们.push(位置)
+    const offset = content.indexOf(needle, from)
+    if (offset < 0) return offsets
+    offsets.push(offset)
     // 从这次匹配的末尾继续找：重叠的匹配（比如在 "aaa" 里找 "aa"）只算一次。
-    起点 = 位置 + 目标.length
+    from = offset + needle.length
   }
 }
 
@@ -177,9 +177,9 @@ export const editTool: Tool = {
     required: ['path', 'old_string', 'new_string'],
   },
   async execute(args) {
-    const 相对路径 = 取字符串(args, 'path')
-    const 路径 = 解析路径(相对路径)
-    const old_string = 取字符串(args, 'old_string')
+    const displayPath = requireString(args, 'path')
+    const target = resolveInsideCwd(displayPath)
+    const old_string = requireString(args, 'old_string')
     const new_string = args['new_string']
     if (typeof new_string !== 'string') {
       throw new Error(`参数 new_string 必须是字符串，实际收到：${JSON.stringify(new_string)}`)
@@ -191,33 +191,33 @@ export const editTool: Tool = {
       throw new Error('old_string 和 new_string 完全相同，这次替换不会改变任何东西。')
     }
 
-    const 内容 = await readFile(路径, 'utf8')
+    const content = await readFile(target, 'utf8')
 
     // 唯一匹配是这个工具的核心契约。数出现位置而不是直接 replace：
     // replace 只换第一处，模型会以为全换了；replaceAll 又可能改到不该改的地方。
     // 两种失败要报出不同的错，因为模型的改正动作完全不同。
-    const 出现位置 = 找出所有位置(内容, old_string)
-    if (出现位置.length === 0) {
-      throw new Error(`old_string 在 ${相对路径} 中没有找到。请先用 read 确认原文（注意空格、缩进和换行必须完全一致）。`)
+    const offsets = findAllOffsets(content, old_string)
+    if (offsets.length === 0) {
+      throw new Error(`old_string 在 ${displayPath} 中没有找到。请先用 read 确认原文（注意空格、缩进和换行必须完全一致）。`)
     }
-    if (出现位置.length > 1) {
-      const 行号 = 出现位置.map(位置 => 内容.slice(0, 位置).split('\n').length)
+    if (offsets.length > 1) {
+      const lineNumbers = offsets.map(offset => content.slice(0, offset).split('\n').length)
       throw new Error(
-        `old_string 在 ${相对路径} 中出现了 ${出现位置.length} 次（第 ${行号.join('、')} 行），必须恰好一次。`
+        `old_string 在 ${displayPath} 中出现了 ${offsets.length} 次（第 ${lineNumbers.join('、')} 行），必须恰好一次。`
         + '请在 old_string 里多带上前后几行上下文，让它变得唯一。',
       )
     }
 
-    await writeFile(路径, 内容.replace(old_string, new_string), 'utf8')
-    return `已修改 ${相对路径}（替换了 ${old_string.length} 字符 → ${new_string.length} 字符）`
+    await writeFile(target, content.replace(old_string, new_string), 'utf8')
+    return `已修改 ${displayPath}（替换了 ${old_string.length} 字符 → ${new_string.length} 字符）`
   },
 }
 
 /** 一条命令最多跑多久。超过就杀掉——模型不会自己发现"卡住了"。 */
-const 默认超时毫秒 = 30_000
+const DEFAULT_TIMEOUT_MS = 30_000
 
 /** 一条命令的输出最多往上下文里塞多少字节。 */
-const 最大输出字节数 = 30_000
+const MAX_OUTPUT_CHARS = 30_000
 
 /**
  * 只保留末尾若干字节的输出收集器。
@@ -225,19 +225,19 @@ const 最大输出字节数 = 30_000
  * 边收边裁，所以内存有上界：`yes` 这种命令一秒能产出几十 MB，
  * 等收完再裁已经晚了。保留**末尾**而不是开头，因为命令的错误信息几乎总在最后。
  */
-class 尾部收集器 {
-  private 文本 = ''
-  private 丢弃过 = false
+class TailBuffer {
+  private text = ''
+  private dropped = false
 
   /**
    * 追加一块输出，超出上限时从头部丢弃。
-   * @param 块 - 子进程新产出的一段文本。
+   * @param chunk - 子进程新产出的一段文本。
    */
-  加(块: string): void {
-    this.文本 += 块
-    if (this.文本.length > 最大输出字节数) {
-      this.文本 = this.文本.slice(-最大输出字节数)
-      this.丢弃过 = true
+  push(chunk: string): void {
+    this.text += chunk
+    if (this.text.length > MAX_OUTPUT_CHARS) {
+      this.text = this.text.slice(-MAX_OUTPUT_CHARS)
+      this.dropped = true
     }
   }
 
@@ -245,18 +245,18 @@ class 尾部收集器 {
    * 取出收集到的文本，并在截断过时附上明确说明。
    * @returns 给模型看的这一路输出。
    */
-  取(): string {
-    return this.丢弃过 ? `[前面的输出已被丢弃，只保留末尾 ${最大输出字节数} 字节]\n${this.文本}` : this.文本
+  read(): string {
+    return this.dropped ? `[前面的输出已被丢弃，只保留末尾 ${MAX_OUTPUT_CHARS} 字节]\n${this.text}` : this.text
   }
 }
 
 /** 一次命令执行的结果。非零退出**不是异常**，是一个正常的结果值。 */
-interface 命令结果 {
+interface CommandOutcome {
   stdout: string
   stderr: string
-  退出码: number | null
-  信号: NodeJS.Signals | null
-  超时: boolean
+  code: number | null
+  killedBy: NodeJS.Signals | null
+  timedOut: boolean
 }
 
 /**
@@ -264,39 +264,39 @@ interface 命令结果 {
  *
  * 每次调用都是**全新的 shell**：`cd`、变量、函数都不会留到下一次。
  * 想换目录就用 workdir 参数——这是 dsh 的 bash 工具在描述里明确告诉模型的同一件事。
- * @param 命令 - 交给 `bash -c` 的命令行。
- * @param 工作路径 - 子进程的工作目录。
- * @param 超时毫秒 - 超过这个时间就 SIGKILL。
+ * @param command - 交给 `bash -c` 的命令行。
+ * @param workdir - 子进程的工作目录。
+ * @param timeoutMs - 超过这个时间就 SIGKILL。
  * @param signal - 外层护栏的取消信号；它一响，命令同样被 SIGKILL。
  * @returns 输出、退出码、以及是否因超时被杀。
  */
-function 跑命令(命令: string, 工作路径: string, 超时毫秒: number, signal: AbortSignal): Promise<命令结果> {
-  return new Promise(完成 => {
-    const 子进程 = spawn('bash', ['-c', 命令], { cwd: 工作路径 })
-    const 标准输出 = new 尾部收集器()
-    const 标准错误 = new 尾部收集器()
-    let 超时 = false
+function runCommand(command: string, workdir: string, timeoutMs: number, signal: AbortSignal): Promise<CommandOutcome> {
+  return new Promise(resolve => {
+    const child = spawn('bash', ['-c', command], { cwd: workdir })
+    const stdout = new TailBuffer()
+    const stderr = new TailBuffer()
+    let timedOut = false
 
-    子进程.stdout.setEncoding('utf8')
-    子进程.stderr.setEncoding('utf8')
-    子进程.stdout.on('data', (块: string) => { 标准输出.加(块) })
-    子进程.stderr.on('data', (块: string) => { 标准错误.加(块) })
+    child.stdout.setEncoding('utf8')
+    child.stderr.setEncoding('utf8')
+    child.stdout.on('data', (chunk: string) => { stdout.push(chunk) })
+    child.stderr.on('data', (chunk: string) => { stderr.push(chunk) })
 
     // SIGKILL 而不是 SIGTERM：命令可以捕获 SIGTERM 然后赖着不走，
     // 而超时的意义就是"无论如何都要停下"。代价是它没机会清理，这里接受这个代价。
-    const 定时器 = setTimeout(() => { 超时 = true; 子进程.kill('SIGKILL') }, 超时毫秒)
+    const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL') }, timeoutMs)
 
     // 外层还有一层护栏的超时（4.4）。它管的是"任何工具都不许卡住 agent"，
     // 上面那个管的是"一条命令跑多久算久"——两层预算，两个问题，都要接。
-    const 被外层中止 = () => { 子进程.kill('SIGKILL') }
-    signal.addEventListener('abort', 被外层中止, { once: true })
+    const onOuterAbort = () => { child.kill('SIGKILL') }
+    signal.addEventListener('abort', onOuterAbort, { once: true })
 
     // 'close' 而不是 'exit'：exit 在进程退出时就触发，此时 stdout 可能还没读完。
     // close 保证所有输出流都已经关闭——少了这一条，长输出的末尾会莫名其妙丢掉。
-    子进程.on('close', (退出码, 信号) => {
-      clearTimeout(定时器)
-      signal.removeEventListener('abort', 被外层中止)
-      完成({ stdout: 标准输出.取(), stderr: 标准错误.取(), 退出码, 信号, 超时 })
+    child.on('close', (code, killedBy) => {
+      clearTimeout(timer)
+      signal.removeEventListener('abort', onOuterAbort)
+      resolve({ stdout: stdout.read(), stderr: stderr.read(), code, killedBy, timedOut })
     })
   })
 }
@@ -307,27 +307,27 @@ function 跑命令(命令: string, 工作路径: string, 超时毫秒: number, s
  * 关键决定：**非零退出码不抛异常**，而是作为标记附在输出末尾。
  * `grep` 没找到东西就退 1，`test` 判假也退 1——这些都不是故障，是结果。
  * 该怎么反应由模型决定，工具只负责如实报告（dsh 的 bash 工具是同一条规矩）。
- * @param 结果 - 一次执行的完整结果。
- * @param 超时毫秒 - 本次生效的超时值，用于写进超时标记。
+ * @param result - 一次执行的完整结果。
+ * @param timeoutMs - 本次生效的超时值，用于写进超时标记。
  * @returns stdout、标了记的 stderr、以及退出状态标记。
  */
-function 组装输出(结果: 命令结果, 超时毫秒: number): string {
-  let 正文 = 结果.stdout
-  if (结果.stderr !== '') {
-    if (正文 !== '' && !正文.endsWith('\n')) 正文 += '\n'
+function formatOutcome(result: CommandOutcome, timeoutMs: number): string {
+  let body = result.stdout
+  if (result.stderr !== '') {
+    if (body !== '' && !body.endsWith('\n')) body += '\n'
     // stderr 要标出来。混在一起模型分不清哪句是结果、哪句是警告。
-    正文 += `[stderr]\n${结果.stderr}`
+    body += `[stderr]\n${result.stderr}`
   }
-  if (正文 === '') 正文 = '(没有输出)'
+  if (body === '') body = '(没有输出)'
 
-  const 标记: string[] = []
-  if (结果.超时) 标记.push(`[超时：跑满 ${超时毫秒}ms 后被杀掉]`)
-  if (结果.信号 !== null) 标记.push(`[被信号杀掉：${结果.信号}]`)
-  else if (结果.退出码 !== 0) 标记.push(`[退出码：${结果.退出码}]`)
+  const markers: string[] = []
+  if (result.timedOut) markers.push(`[超时：跑满 ${timeoutMs}ms 后被杀掉]`)
+  if (result.killedBy !== null) markers.push(`[被信号杀掉：${result.killedBy}]`)
+  else if (result.code !== 0) markers.push(`[退出码：${result.code}]`)
 
-  if (标记.length === 0) return 正文
-  if (!正文.endsWith('\n')) 正文 += '\n'
-  return 正文 + 标记.join('\n')
+  if (markers.length === 0) return body
+  if (!body.endsWith('\n')) body += '\n'
+  return body + markers.join('\n')
 }
 
 /**
@@ -347,35 +347,35 @@ export const bashTool: Tool = {
       command: { type: 'string', description: '要执行的命令行' },
       description: { type: 'string', description: '一句话说明这条命令要做什么，例如"跑单元测试"' },
       workdir: { type: 'string', description: '可选：命令的工作目录，相对于当前工作目录' },
-      timeout_ms: { type: 'number', description: `可选：超时毫秒数，默认 ${默认超时毫秒}` },
+      timeout_ms: { type: 'number', description: `可选：超时毫秒数，默认 ${DEFAULT_TIMEOUT_MS}` },
     },
     required: ['command', 'description'],
   },
   async execute(args, signal) {
-    const 命令 = 取字符串(args, 'command')
+    const command = requireString(args, 'command')
     // description 是必填的，但工具本身不用它。要它是为了让模型**说出意图**：
     // 阶段 15 的审批弹窗要拿它给用户看，而且被迫写一句话本身就会让模型少乱来。
-    取字符串(args, 'description')
+    requireString(args, 'description')
 
-    const 工作路径 = args['workdir'] === undefined ? 工作目录 : 解析路径(取字符串(args, 'workdir'))
+    const workdir = args['workdir'] === undefined ? CWD : resolveInsideCwd(requireString(args, 'workdir'))
 
     // 默认值在这里显式取，而不是藏在 跑命令() 里的 `?? 默认超时毫秒`。
     // dsh 把这条做成了一条明规矩：resolve(request) → spec 是一步独立的解析，
     // 调用方能看见最终生效的值是什么（`ShellExecRequest` → `ShellExecSpec`）。
-    const 超时原值 = args['timeout_ms']
-    if (超时原值 !== undefined && (typeof 超时原值 !== 'number' || !Number.isFinite(超时原值) || 超时原值 <= 0)) {
-      throw new Error(`参数 timeout_ms 必须是正数，实际收到：${JSON.stringify(超时原值)}`)
+    const rawTimeout = args['timeout_ms']
+    if (rawTimeout !== undefined && (typeof rawTimeout !== 'number' || !Number.isFinite(rawTimeout) || rawTimeout <= 0)) {
+      throw new Error(`参数 timeout_ms 必须是正数，实际收到：${JSON.stringify(rawTimeout)}`)
     }
-    const 超时毫秒 = 超时原值 ?? 默认超时毫秒
+    const timeoutMs = rawTimeout ?? DEFAULT_TIMEOUT_MS
 
-    return 组装输出(await 跑命令(命令, 工作路径, 超时毫秒, signal), 超时毫秒)
+    return formatOutcome(await runCommand(command, workdir, timeoutMs, signal), timeoutMs)
   },
-  摘要(结果) {
+  summarize(result) {
     // 命令的结论在末尾：报错的最后一句、以及我们自己附的退出状态标记。
     // `[stderr]` 是分节标题不是内容，滤掉。
-    const 行 = 结果.split('\n').filter(行 => 行.trim() !== '' && 行 !== '[stderr]')
-    const 末两行 = 行.slice(-2).join(' / ')
-    return 行.length > 2 ? `（共 ${行.length} 行）… ${末两行}` : 末两行
+    const line = result.split('\n').filter(line => line.trim() !== '' && line !== '[stderr]')
+    const lastTwo = line.slice(-2).join(' / ')
+    return line.length > 2 ? `（共 ${line.length} 行）… ${lastTwo}` : lastTwo
   },
 }
 
@@ -385,37 +385,37 @@ export const bashTool: Tool = {
  * 少了这一条，任何一次搜索的结果里 99% 是 `node_modules` 和 `.git`——
  * 模型要的那几行会被淹没。**过滤噪音和限制数量是两件事，两件都要做。**
  */
-const 不进的目录 = new Set(['.git', 'node_modules', 'dist', 'lib', 'coverage', '.cache'])
+const SKIPPED_DIRS = new Set(['.git', 'node_modules', 'dist', 'lib', 'coverage', '.cache'])
 
 /** 一次搜索最多返回多少条结果。 */
-const 最大结果数 = 100
+const MAX_RESULTS = 100
 
 /** 一条匹配行最多显示多少字符：压缩过的 JS、单行 JSON 数据能一行几十万字符。 */
-const 最大行字符数 = 300
+const MAX_LINE_CHARS = 300
 
 /** 一次搜索最多看多少个文件，防止在超大仓库里跑到天荒地老。 */
-const 最大遍历文件数 = 20_000
+const MAX_WALKED_FILES = 20_000
 
 /**
- * 深度优先遍历一个目录下的所有文件，跳过 {@link 不进的目录}。
- * @param 根目录 - 遍历起点的绝对路径。
+ * 深度优先遍历一个目录下的所有文件，跳过 {@link SKIPPED_DIRS}。
+ * @param root - 遍历起点的绝对路径。
  * @yields 每个文件的绝对路径。
  */
-async function* 遍历文件(根目录: string): AsyncGenerator<string> {
-  const 待办 = [根目录]
-  let 已看文件数 = 0
-  while (待办.length > 0) {
-    const 目录 = 待办.pop()
-    if (目录 === undefined) return
+async function* walkFiles(root: string): AsyncGenerator<string> {
+  const pending = [root]
+  let walked = 0
+  while (pending.length > 0) {
+    const dir = pending.pop()
+    if (dir === undefined) return
     // 目录可能在遍历途中被删掉，或者是个没有权限的目录：跳过它，别让整次搜索失败。
-    const 条目 = await readdir(目录, { withFileTypes: true }).catch(() => [])
-    for (const 条目项 of 条目) {
-      const 完整路径 = resolve(目录, 条目项.name)
-      if (条目项.isDirectory()) {
-        if (!不进的目录.has(条目项.name)) 待办.push(完整路径)
-      } else if (条目项.isFile()) {
-        if (++已看文件数 > 最大遍历文件数) return
-        yield 完整路径
+    const entries = await readdir(dir, { withFileTypes: true }).catch(() => [])
+    for (const entry of entries) {
+      const fullPath = resolve(dir, entry.name)
+      if (entry.isDirectory()) {
+        if (!SKIPPED_DIRS.has(entry.name)) pending.push(fullPath)
+      } else if (entry.isFile()) {
+        if (++walked > MAX_WALKED_FILES) return
+        yield fullPath
       }
       // 符号链接既不进也不 yield：跟着链接走可能绕回自己，变成无限循环。
     }
@@ -427,29 +427,29 @@ async function* 遍历文件(根目录: string): AsyncGenerator<string> {
  *
  * 支持三种通配：`**` 跨目录、`*` 不跨目录、`?` 一个字符。其余字符按字面量处理，
  * 所以正则元字符必须转义——否则 `a.ts` 里的 `.` 会匹配任意字符。
- * @param 模式 - 例如 `src/**\/*.ts`。
+ * @param glob - 例如 `src/**\/*.ts`。
  * @returns 用来整体匹配相对路径的正则。
  */
-function glob转正则(模式: string): RegExp {
-  let 正则 = ''
-  for (let i = 0; i < 模式.length; i++) {
-    const 字符 = 模式[i] ?? ''
-    if (字符 === '*') {
-      if (模式[i + 1] === '*') {
-        正则 += '.*'
+function globToRegExp(glob: string): RegExp {
+  let pattern = ''
+  for (let i = 0; i < glob.length; i++) {
+    const ch = glob[i] ?? ''
+    if (ch === '*') {
+      if (glob[i + 1] === '*') {
+        pattern += '.*'
         i++
         // `**/` 后面的斜杠一起吃掉，这样 `**/*.ts` 也能匹配根目录下的 `a.ts`。
-        if (模式[i + 1] === '/') i++
+        if (glob[i + 1] === '/') i++
       } else {
-        正则 += '[^/]*'
+        pattern += '[^/]*'
       }
-    } else if (字符 === '?') {
-      正则 += '[^/]'
+    } else if (ch === '?') {
+      pattern += '[^/]'
     } else {
-      正则 += 字符.replace(/[.+^${}()|[\]\\]/g, '\\$&')
+      pattern += ch.replace(/[.+^${}()|[\]\\]/g, '\\$&')
     }
   }
-  return new RegExp(`^${正则}$`)
+  return new RegExp(`^${pattern}$`)
 }
 
 /** 按文件名模式找文件的工具。 */
@@ -467,25 +467,25 @@ export const globTool: Tool = {
     required: ['pattern'],
   },
   async execute(args) {
-    const 匹配 = glob转正则(取字符串(args, 'pattern'))
-    const 起点 = args['path'] === undefined ? 工作目录 : 解析路径(取字符串(args, 'path'))
+    const matcher = globToRegExp(requireString(args, 'pattern'))
+    const from = args['path'] === undefined ? CWD : resolveInsideCwd(requireString(args, 'path'))
 
-    const 命中: { 路径: string, 修改时间: number }[] = []
-    for await (const 文件 of 遍历文件(起点)) {
-      const 相对路径 = relative(工作目录, 文件)
-      if (!匹配.test(相对路径)) continue
-      命中.push({ 路径: 相对路径, 修改时间: (await stat(文件)).mtimeMs })
+    const hits: { target: string, mtime: number }[] = []
+    for await (const file of walkFiles(from)) {
+      const displayPath = relative(CWD, file)
+      if (!matcher.test(displayPath)) continue
+      hits.push({ target: displayPath, mtime: (await stat(file)).mtimeMs })
     }
 
-    if (命中.length === 0) return '没有匹配的文件。'
+    if (hits.length === 0) return '没有匹配的文件。'
 
     // 按修改时间倒序：模型问"这个功能的代码在哪"时，最近动过的文件几乎总是最相关的。
     // dsh 的 glob 也是这个顺序（它靠 `rg --files` 自带的排序拿到）。
-    命中.sort((甲, 乙) => 乙.修改时间 - 甲.修改时间)
-    const 显示 = 命中.slice(0, 最大结果数).map(项 => 项.路径).join('\n')
-    return 命中.length > 最大结果数
-      ? `${显示}\n\n[共 ${命中.length} 个匹配，只显示最近修改的 ${最大结果数} 个。请把 pattern 写得更具体。]`
-      : 显示
+    hits.sort((a, b) => b.mtime - a.mtime)
+    const shown = hits.slice(0, MAX_RESULTS).map(item => item.target).join('\n')
+    return hits.length > MAX_RESULTS
+      ? `${shown}\n\n[共 ${hits.length} 个匹配，只显示最近修改的 ${MAX_RESULTS} 个。请把 pattern 写得更具体。]`
+      : shown
   },
 }
 
@@ -512,41 +512,41 @@ export const grepTool: Tool = {
     required: ['pattern'],
   },
   async execute(args) {
-    const 模式文本 = 取字符串(args, 'pattern')
-    let 匹配: RegExp
+    const source = requireString(args, 'pattern')
+    let matcher: RegExp
     try {
-      匹配 = new RegExp(模式文本)
+      matcher = new RegExp(source)
     } catch (error) {
       // 模型写的正则可能根本编译不过（未闭合的括号最常见）。这是它能改正的错。
       throw new Error(`pattern 不是合法的正则表达式：${error instanceof Error ? error.message : String(error)}`)
     }
-    const 起点 = args['path'] === undefined ? 工作目录 : 解析路径(取字符串(args, 'path'))
-    const 文件名过滤 = args['include'] === undefined ? undefined : glob转正则(取字符串(args, 'include'))
+    const from = args['path'] === undefined ? CWD : resolveInsideCwd(requireString(args, 'path'))
+    const includeFilter = args['include'] === undefined ? undefined : globToRegExp(requireString(args, 'include'))
 
-    const 结果行: string[] = []
-    let 总匹配数 = 0
-    for await (const 文件 of 遍历文件(起点)) {
-      const 相对路径 = relative(工作目录, 文件)
+    const lines: string[] = []
+    let totalMatches = 0
+    for await (const file of walkFiles(from)) {
+      const displayPath = relative(CWD, file)
       // include 只匹配文件名部分，这样 `*.ts` 不必写成 `**/*.ts`。
-      if (文件名过滤 !== undefined && !文件名过滤.test(相对路径.split('/').at(-1) ?? '')) continue
+      if (includeFilter !== undefined && !includeFilter.test(displayPath.split('/').at(-1) ?? '')) continue
 
       // 二进制文件读出来是乱码，正则可能碰巧匹配上，输出是一堆不可打印字符。
-      const 内容 = await readFile(文件, 'utf8').catch(() => undefined)
-      if (内容 === undefined || 内容.includes('\0')) continue
+      const content = await readFile(file, 'utf8').catch(() => undefined)
+      if (content === undefined || content.includes('\0')) continue
 
-      内容.split('\n').forEach((行, 下标) => {
-        if (!匹配.test(行)) return
-        总匹配数++
-        if (结果行.length >= 最大结果数) return
-        const 裁过的行 = 行.length > 最大行字符数 ? `${行.slice(0, 最大行字符数)}…` : 行
-        结果行.push(`${相对路径}:${下标 + 1}: ${裁过的行}`)
+      content.split('\n').forEach((line, index) => {
+        if (!matcher.test(line)) return
+        totalMatches++
+        if (lines.length >= MAX_RESULTS) return
+        const clipped = line.length > MAX_LINE_CHARS ? `${line.slice(0, MAX_LINE_CHARS)}…` : line
+        lines.push(`${displayPath}:${index + 1}: ${clipped}`)
       })
     }
 
-    if (总匹配数 === 0) return '没有匹配。'
-    return 总匹配数 > 最大结果数
-      ? `${结果行.join('\n')}\n\n[共 ${总匹配数} 处匹配，只显示前 ${最大结果数} 处。请把 pattern 或 include 写得更具体。]`
-      : 结果行.join('\n')
+    if (totalMatches === 0) return '没有匹配。'
+    return totalMatches > MAX_RESULTS
+      ? `${lines.join('\n')}\n\n[共 ${totalMatches} 处匹配，只显示前 ${MAX_RESULTS} 处。请把 pattern 或 include 写得更具体。]`
+      : lines.join('\n')
   },
 }
 
@@ -557,10 +557,10 @@ export const grepTool: Tool = {
  * 一个工具的描述里提到另一个工具，等于把它们绑死了（删掉 grep，bash 的描述就在说谎）；
  * 而且"该先用谁"这件事只有**看到全套工具的人**才说得清，单个工具没有这个视角。
  */
-export const 工具指引段: 提示段 = {
-  名字: 'tools:guidance',
-  顺序: 100,
-  文本: '选工具的优先级：\n'
+export const toolGuidanceSection: PromptSection = {
+  name: 'tools:guidance',
+  order: 100,
+  text: '选工具的优先级：\n'
     + '- 读文件用 read（它带行号），不要用 `cat`。\n'
     + '- 改已有文件用 edit（唯一字面匹配），不要用 write 整体重写，也不要用 `sed`。\n'
     + '- 按内容找代码用 grep，按文件名找用 glob，都不要用 bash 里的 grep/find——'
@@ -576,7 +576,7 @@ export const tools: Tool[] = [readTool, writeTool, editTool, bashTool, globTool,
  * @param tools - 内部工具定义。
  * @returns wire 格式的工具数组。
  */
-export function 转成wire格式(tools: Tool[]): unknown[] {
+export function toWireTools(tools: Tool[]): unknown[] {
   return tools.map(tool => ({
     type: 'function',
     function: { name: tool.name, description: tool.description, parameters: tool.parameters },

@@ -82,7 +82,7 @@ llm/stream 前    → flush（请求前缀必须耐久，否则不发请求）
   append assistant/chunk × N                     ← 内存，200ms 攒批写
   append assistant/message                       ← 内存
 tools/execute 前 → flush（副作用之前必须耐久，否则不执行）
-  执行工具，append tool/result                    ← 内存
+  runTool，append tool/result                    ← 内存
   append step/end、turn/end                      ← 内存
 （下一个 step 的 pre-step）→ flush
 ```

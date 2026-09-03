@@ -7,22 +7,22 @@
 ```sh
 # ① 六个工具都在
 npm run demo demos/04-tools/01-write-edit.mjs     # write 创建/覆盖，edit 三种失败一种成功
-npm run demo demos/04-tools/03-bash.mjs           # 退出码、状态不保留、输出爆炸、超时、越界
+npm run demo demos/04-tools/03-bash.mjs           # code、状态不保留、输出爆炸、timedOut、越界
 npm run demo demos/04-tools/06-search.mjs         # glob 排序、grep 三种输出
 
 # ② 模型能从失败里自己爬出来
 npm run demo demos/04-tools/02-edit-self-correct.mjs
-# 第 1 步 → 错误：old_string ... 出现了 2 次（第 2、6 行）...
+# 第 1 步 → error：old_string ... 出现了 2 次（第 2、6 line）...
 # 第 2 步 → 已修改 demo.ts
 
 # ③ 一个 turn 四个 step：跑测试 → 读 → 改 → 再跑
 npm run demo demos/04-tools/04-red-green.mjs      # 最后一步 → PASS
 
-# ④ 护栏
+# ④ Guard
 npm run demo demos/04-tools/09-pipeline.mjs
-# 错误：被护栏「只读模式」拒绝：当前是只读模式，write 不能用。...
-# 错误：工具 bash 超过了 1000ms 的时间上限，已被中止。
-# 错误：护栏「坏掉的护栏」自己出错了：我自己炸了
+# error：被护栏「readOnlyGuard」拒绝：当前是只读模式，write 不能用。...
+# error：工具 bash 超过了 1000ms 的时间上限，已被中止。
+# error：Guard「brokenGuard」自己出错了：我自己炸了
 
 # ⑤ 同一个 agent，一个开关的差别
 npm run demo demos/04-tools/10-read-only.mjs
@@ -49,11 +49,11 @@ npm run typecheck && npm run check
 ## 本阶段产出
 
 ```
-src/tool.ts       # 改：+write +edit +bash +glob +grep，Tool 加 摘要() 和 signal
+src/tool.ts       # 改：+write +edit +bash +glob +grep，Tool push summarize() 和 signal
 src/pipeline.ts   # 新增：三段执行管线
-src/guard.ts      # 新增：只读模式 / 输出兜底 / 记账
-src/config.ts     # 改：Config → 生效配置；DSH_LEARN_CONFIG
-src/index.ts      # 改：执行工具() 搬进管线，装配护栏数组
+src/guard.ts      # 新增：readOnlyGuard / outputBackstop / accounting
+src/config.ts     # 改：Config → ResolvedConfig；DSH_LEARN_CONFIG
+src/index.ts      # 改：runTool() 搬进管线，装配护栏数组
 demos/            # 新增：harness.mjs + 阶段 4 的十个演示
 ```
 
@@ -67,7 +67,7 @@ demos/            # 新增：harness.mjs + 阶段 4 的十个演示
 |---|---|---|
 | 它叫什么、描述怎么写 | 3.1、3.3 | 描述是**提示词**：写清"什么时候用"，以及**和别的工具比该先用谁** |
 | 参数怎么校验 | 3.3 | 模型给的 JSON 是不可信输入；空串对 `path` 非法、对 `content` 合法 |
-| 输出给谁看 | 3.3、4.2 | `execute` 的返回值给**模型**；给人看的那一行是另一个方法（`摘要`） |
+| 输出给谁看 | 3.3、4.2 | `execute` 的返回值给**模型**；给人看的那一行是另一个方法（`summarize`） |
 | 输出太大怎么办 | 3.3、4.2、4.3 | 截断永远要问"截什么、留哪头"：read 留头、bash 留尾、grep 逐行 |
 | 失败怎么报 | 3.3、4.1 | 每种失败对应一个**不同的改正动作**，就得是一条不同的错 |
 | 谁能打断它 | 4.4 | 能被打断的必须接 `signal`；打不断的（纯 CPU）要在设计上避开 |

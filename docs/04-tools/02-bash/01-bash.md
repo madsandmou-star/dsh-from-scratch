@@ -11,9 +11,9 @@
 ## 一次执行要处理四件事
 
 ```ts
-function 跑命令(命令: string, 工作路径: string, 超时毫秒: number): Promise<命令结果> {
-  return new Promise(完成 => {
-    const 子进程 = spawn('bash', ['-c', 命令], { cwd: 工作路径 })
+function runCommand(command: string, workdir: string, timeoutMs: number): Promise<CommandOutcome> {
+  return new Promise(resolve => {
+    const child = spawn('bash', ['-c', command], { cwd: workdir })
     ...
   })
 }
@@ -24,7 +24,7 @@ function 跑命令(命令: string, 工作路径: string, 超时毫秒: number): 
 `npm install` 卡在网络上、`vim` 等你按键、`tail -f` 永远不结束——这些情况下模型什么也收不到，整个 agent 就停在那里。**必须有人替它数秒。**
 
 ```ts
-const 定时器 = setTimeout(() => { 超时 = true; 子进程.kill('SIGKILL') }, 超时毫秒)
+const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL') }, timeoutMs)
 ```
 
 用 `SIGKILL` 而不是 `SIGTERM`：命令可以捕获 SIGTERM 然后赖着不走，而超时的意义就是"无论如何都要停下"。代价是它没机会清理临时文件，这里接受这个代价。
@@ -34,14 +34,14 @@ const 定时器 = setTimeout(() => { 超时 = true; 子进程.kill('SIGKILL') },
 工具的返回值会原样进入下一轮请求的 messages。一条 `find /` 能产出几百 MB。
 
 ```ts
-class 尾部收集器 {
-  private 文本 = ''
-  private 丢弃过 = false
-  加(块: string): void {
-    this.文本 += 块
-    if (this.文本.length > 最大输出字节数) {
-      this.文本 = this.文本.slice(-最大输出字节数)
-      this.丢弃过 = true
+class TailBuffer {
+  private text = ''
+  private dropped = false
+  push(chunk: string): void {
+    this.text += chunk
+    if (this.text.length > MAX_OUTPUT_CHARS) {
+      this.text = this.text.slice(-MAX_OUTPUT_CHARS)
+      this.dropped = true
     }
   }
 }
@@ -60,15 +60,15 @@ class 尾部收集器 {
 ```
 ── grep 没找到 ──
 (没有输出)
-[退出码：1]
+[code：1]
 ```
 
 `grep` 没匹配到就退 1，`test` 判假也退 1，`diff` 发现差异退 1。**这些都不是故障，是结果。** 所以退出码作为一行标记附在输出末尾，而不是抛异常：
 
 ```ts
-if (结果.超时) 标记.push(`[超时：跑满 ${超时毫秒}ms 后被杀掉]`)
-if (结果.信号 !== null) 标记.push(`[被信号杀掉：${结果.信号}]`)
-else if (结果.退出码 !== 0) 标记.push(`[退出码：${结果.退出码}]`)
+if (result.timedOut) markers.push(`[timedOut：跑满 ${timeoutMs}ms 后被杀掉]`)
+if (result.signal !== null) markers.push(`[被信号杀掉：${result.signal}]`)
+else if (result.code !== 0) markers.push(`[code：${result.code}]`)
 ```
 
 这是 3.3 那条"执行失败要变成文本"的延伸：**该怎么反应由模型决定，工具只负责如实报告。**
@@ -78,7 +78,7 @@ stderr 也要**标出来**而不是和 stdout 混在一起：
 ```
 [stderr]
 ls: cannot access '/nonexistent-dir': No such file or directory
-[退出码：2]
+[code：2]
 ```
 
 混着给，模型分不清哪句是结果、哪句只是个警告。
@@ -104,14 +104,14 @@ ls: cannot access '/nonexistent-dir': No such file or directory
 ## 一个新的设计动作：默认值要显式取
 
 ```ts
-const 超时原值 = args['timeout_ms']
-if (超时原值 !== undefined && (typeof 超时原值 !== 'number' || !Number.isFinite(超时原值) || 超时原值 <= 0)) {
-  throw new Error(`参数 timeout_ms 必须是正数，实际收到：${JSON.stringify(超时原值)}`)
+const rawTimeout = args['timeout_ms']
+if (rawTimeout !== undefined && (typeof rawTimeout !== 'number' || !Number.isFinite(rawTimeout) || rawTimeout <= 0)) {
+  throw new Error(`args timeout_ms 必须是正数，实际收到：${JSON.stringify(rawTimeout)}`)
 }
-const 超时毫秒 = 超时原值 ?? 默认超时毫秒
+const timeoutMs = rawTimeout ?? DEFAULT_TIMEOUT_MS
 ```
 
-注意默认值是在**调用之前**取出来的，不是藏在 `跑命令()` 内部写成 `超时毫秒 ?? 30000`。差别在于：这样写，"这次到底用了多少秒"是一个能打印、能记日志、能出现在错误信息里的**值**；藏在里面就只有函数自己知道。
+注意默认值是在**调用之前**取出来的，不是藏在 `runCommand()` 内部写成 `超时毫秒 ?? 30000`。差别在于：这样写，"这次到底用了多少秒"是一个能打印、能记日志、能出现在错误信息里的**值**；藏在里面就只有函数自己知道。
 
 dsh 把这条写成了明规矩：**请求（request）和规格（spec）是两个类型**，中间隔一步显式的 `resolve()`。
 
@@ -140,22 +140,22 @@ interface ShellExecSpec    { command: string; workdir: string;  timeoutMs: numbe
 export interface Tool {
   ...
   /** 可选：把执行结果压成一行给人看的摘要。 */
-  摘要?(结果: string): string
+  summarize?(result: string): string
 }
 ```
 
 ```ts
-摘要(结果) {
-  const 行 = 结果.split('\n').filter(行 => 行.trim() !== '' && 行 !== '[stderr]')
-  const 末两行 = 行.slice(-2).join(' / ')
-  return 行.length > 2 ? `（共 ${行.length} 行）… ${末两行}` : 末两行
+summarize(result) {
+  const line = result.split('\n').filter(line => line.trim() !== '' && line !== '[stderr]')
+  const lastTwo = line.slice(-2).join(' / ')
+  return line.length > 2 ? `（共 ${line.length} line）… ${lastTwo}` : lastTwo
 }
 ```
 
 修完之后：
 
 ```
-         → FAIL: add(2, 3) 期望 5，实际 -1 / [退出码：1]
+         → FAIL: add(2, 3) 期望 5，实际 -1 / [code：1]
 ```
 
 **谁最清楚自己的输出长什么样，谁就该负责它怎么显示。** 这正是 dsh 那条"**工具的 UI 呈现意图是设计的一部分**"——只不过 dsh 的版本强得多：`presentCall()` 决定调用时画什么卡片（bash 画终端、edit 画 diff），`presentResult()` 决定结果怎么显示，而且它们是**纯函数**，重放会话时不用重新执行工具就能重画界面。阶段 12 会做这一层。
@@ -169,7 +169,7 @@ export interface Tool {
 
 模型 >
   [工具] bash({"command":"node test.mjs","description":"跑测试看看现在是什么情况"})
-         → FAIL: add(2, 3) 期望 5，实际 -1 / [退出码：1]
+         → FAIL: add(2, 3) 期望 5，实际 -1 / [code：1]
 
 模型 >
   [工具] read({"path":"add.mjs"})
@@ -177,7 +177,7 @@ export interface Tool {
 
 模型 >
   [工具] edit({"path":"add.mjs","old_string":"  return a - b","new_string":"  return a + b"})
-         → 已修改 add.mjs（替换了 14 字符 → 14 字符）
+         → 已修改 add.mjs（替换了 14 ch → 14 ch）
 
 模型 >
   [工具] bash({"command":"node test.mjs","description":"再跑一次测试确认修好了"})
@@ -255,7 +255,7 @@ bash 想读工作目录之外的东西：
 | | 我们的 | dsh |
 |---|---|---|
 | 结构 | 一个函数 | **能力接缝**：`shell`（定义）+ `bash-local`/`bash-sandbox`/`pwsh-local`（提供者）+ `tool-bash`（消费者） |
-| 超时 | 常量 `默认超时毫秒` | `bash-local` 的 **Config 字段**：`timeoutMs: z.number().default(120_000)`，还有 `maxTimeoutMs` **把模型请求的超时钳住** |
+| 超时 | 常量 `DEFAULT_TIMEOUT_MS` | `bash-local` 的 **Config 字段**：`timeoutMs: z.number().default(120_000)`，还有 `maxTimeoutMs` **把模型请求的超时钳住** |
 | 输出过大 | 丢掉，只留末尾 | 同样只留末尾，但**全量转存到文件**，并把路径告诉模型：`[output truncated; full output: /path/...]` |
 | 长命令 | 只能等超时 | `run_in_background: true` 立刻返回一个 job id，用 `job_output` 读、`job_kill` 停 |
 | 状态保留 | 不保留 | 不保留；想要保留的另有 `tool-bash-persistent` 一整个包 |

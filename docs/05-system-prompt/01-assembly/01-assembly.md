@@ -29,7 +29,7 @@
 看 4.4 那个演示的输出：
 
 ```
-[工具] edit(...) → 错误：被护栏「只读模式」拒绝：当前是只读模式，edit 不能用。
+[工具] edit(...) → error：被护栏「readOnlyGuard」拒绝：当前是只读模式，edit 不能用。
 ```
 
 也就是说，**模型必须先试着改一次文件、被拒绝，才知道自己在只读模式。** 这是最典型的"话放错了地方"：
@@ -49,15 +49,15 @@
 
 tool.ts   bash.description  ── 夹带："优先用 read/edit" ──→ 请求的 tools 字段
           grep.description  ── 夹带："别用 bash 里的 grep" ──→ 请求的 tools 字段
-guard.ts  只读模式的拒绝理由 ── 只有被拒绝之后才出现 ──→ 某条 tool 结果
+guard.ts  只读模式的拒绝理由 ── 只有被拒绝之后才出现 ──→ 某条 tool result
 ```
 
 改之后，四个来源都汇进同一个注册表，出口只有一个：
 
 ```
-身份段          (-100) ─┐
+identitySection          (-100) ─┐
 配置的 persona  (   0) ─┤
-工具指引段      ( 100) ─┼──→ 提示注册表 ──按顺序拼──→ messages[0]
+toolGuidanceSection      ( 100) ─┼──→ PromptRegistry ──按顺序拼──→ messages[0]
 只读模式段      ( 110) ─┘        （空段落丢掉）
 ```
 
@@ -68,43 +68,43 @@ guard.ts  只读模式的拒绝理由 ── 只有被拒绝之后才出现 ─�
 整个机制就是一个 `Map` 加一次排序：
 
 ```ts
-export interface 提示段 {
-  名字: string                        // 唯一，重名抛错
-  顺序: number                        // 从小到大拼
-  文本: string | (() => string)       // 函数版用来做"条件性段落"
+export interface PromptSection {
+  name: string                        // 唯一，重名抛错
+  order: number                        // 从小到大拼
+  text: string | (() => string)       // 函数版用来做"条件性段落"
 }
 
-export class 提示注册表 {
-  private readonly 段们 = new Map<string, 提示段>()
+export class PromptRegistry {
+  private readonly sections = new Map<string, PromptSection>()
 
-  注册(段: 提示段): () => void {
-    if (this.段们.has(段.名字)) throw new Error(`system prompt 段落重名：${段.名字}`)
-    this.段们.set(段.名字, 段)
-    return () => { this.段们.delete(段.名字) }   // ← 返回的是注销函数
+  register(section: PromptSection): () => void {
+    if (this.sections.has(section.name)) throw new Error(`system prompt 段落重名：${section.name}`)
+    this.sections.set(section.name, section)
+    return () => { this.sections.delete(section.name) }   // ← 返回的是注销函数
   }
 
-  组装(): string {
-    return [...this.段们.values()]
-      .sort((甲, 乙) => 甲.顺序 - 乙.顺序)
-      .map(段 => (typeof 段.文本 === 'string' ? 段.文本 : 段.文本()).trim())
-      .filter(文本 => 文本 !== '')             // ← 空段落丢掉
+  assemble(): string {
+    return [...this.sections.values()]
+      .sort((a, b) => a.order - b.order)
+      .map(section => (typeof section.text === 'string' ? section.text : section.text()).trim())
+      .filter(text => text !== '')             // ← 空段落丢掉
       .join('\n\n')
   }
 }
 ```
 
-**九十行不到，其中三十行是这个类，剩下是注释和一个 debug 用的 `清单()`。** 这一课剩下的篇幅全在讲：上面这几行里的每一个选择为什么是这样，而不是另一样。
+**九十行不到，其中三十行是这个类，剩下是注释和一个 debug 用的 `inventory()`。** 这一课剩下的篇幅全在讲：上面这几行里的每一个选择为什么是这样，而不是另一样。
 
 ### 用起来是四行
 
 ```ts
-const 提示 = new 提示注册表()
-提示.注册(身份段)
-提示.注册({ 名字: 'deployment:persona', 顺序: 0, 文本: config.systemPrompt })
-提示.注册(工具指引段)
-提示.注册(只读模式提示(config.只读))
+const prompt = new PromptRegistry()
+prompt.register(identitySection)
+prompt.register({ name: 'deployment:persona', order: 0, text: config.systemPrompt })
+prompt.register(toolGuidanceSection)
+prompt.register(readOnlyNotice(config.readOnly))
 
-const messages = [{ role: 'system', content: 提示.组装() }]
+const messages = [{ role: 'system', content: prompt.assemble() }]
 ```
 
 ### 拼出来的东西
@@ -127,10 +127,10 @@ You are a helpful assistant.
 
 ## 三个字段，三个决定
 
-### `名字`：重名直接抛错
+### `name`：重名直接抛错
 
 ```ts
-if (this.段们.has(段.名字)) throw new Error(`system prompt 段落重名：${段.名字}`)
+if (this.sections.has(section.name)) throw new Error(`system prompt 段落重名：${section.name}`)
 ```
 
 ```
@@ -142,7 +142,7 @@ if (this.段们.has(段.名字)) throw new Error(`system prompt 段落重名：$
 
 这是阶段 0 那条"配置错误要在第一次请求之前暴露"的又一次应用。dsh 也是抛错（`a duplicate registration throws`）。
 
-### `顺序`：为什么用带间隔的数字
+### `order`：为什么用带间隔的数字
 
 ```ts
 /**
@@ -153,24 +153,24 @@ if (this.段们.has(段.名字)) throw new Error(`system prompt 段落重名：$
 
 ```
 ── ① 默认装配（只读关） ──
-   -100  harness:identity     56 字符
-      0  deployment:persona   33 字符
-    100  tools:guidance       214 字符
-    110  guard:read-only      0 字符（空，会被丢掉）
-  → 拼出来共 307 字符
+   -100  harness:identity     56 ch
+      0  deployment:persona   33 ch
+    100  tools:guidance       214 ch
+    110  guard:read-only      0 ch（blank，会被丢掉）
+  → 拼出来共 307 ch
 ```
 
 用 `-100 / 0 / 100` 而不是 `1 / 2 / 3`，是为了**将来在任意两段之间插进新段时不用重新编号**。这个梯子是从 dsh 直接抄的，因为它本身就是经验。
 
 `0` 留给"部署方给的 persona"也是有讲究的：**它是模型读到的第一段**（负数排在它前面的只有 harness 身份），所以最容易被模型当成"我是谁"。5.4 会讲 dsh 为什么给这个位置起了个具名常量 `PERSONA_SECTION`。
 
-### `文本` 可以是函数：条件性段落
+### `text` 可以是函数：条件性段落
 
 只读模式那一段这样写：
 
 ```ts
-文本: () => (开启
-  ? '当前是**只读模式**：write / edit / bash 都不可用，调用它们会被直接拒绝。'
+text: () => (enabled
+  ? '当前是**readOnlyGuard**：write / edit / bash 都不可用，调用它们会被直接拒绝。'
     + '你可以用 read / glob / grep 查看代码，并把建议的改法说出来，但不要试图自己动手。'
   : ''),
 ```
@@ -178,10 +178,10 @@ if (this.段们.has(段.名字)) throw new Error(`system prompt 段落重名：$
 关掉时它返回空串，组装时被丢掉：
 
 ```ts
-.filter(文本 => 文本 !== '')
+.filter(text => text !== '')
 ```
 
-**空段落被丢掉，而不是让调用方去判断该不该注册它。** 差别在于：装配那几行永远长一个样（`提示.注册(只读模式提示(config.只读))`），开关的逻辑留在懂这个开关的地方。装配代码里散落 `if` 是"每加一个功能就动一次主干"的开始。
+**空段落被丢掉，而不是让调用方去判断该不该注册它。** 差别在于：装配那几行永远长一个样（`prompt.register(readOnlyNotice(config.readOnly))`），开关的逻辑留在懂这个开关的地方。装配代码里散落 `if` 是"每加一个功能就动一次主干"的开始。
 
 ## 装配：没有人知道全貌
 
@@ -198,17 +198,17 @@ ctx.systemPrompt.section({ name: 'tool:edit', order: 102, text: 'Use the edit to
 ## 注册返回的是注销函数
 
 ```ts
-注册(段: 提示段): () => void {
+register(section: PromptSection): () => void {
   ...
-  return () => { this.段们.delete(段.名字) }
+  return () => { this.sections.delete(section.name) }
 }
 ```
 
 ```
 ── ③ 注销 ──
 ── 撤掉 persona 之后 ──
-   -100  harness:identity     56 字符
-    100  tools:guidance       214 字符
+   -100  harness:identity     56 ch
+    100  tools:guidance       214 ch
 ```
 
 返回值是**注销函数**，不是 `void`。现在还用不上——我们的装配一次成型，没人会撤。但这是 dsh 那条规矩的种子：
@@ -226,12 +226,12 @@ DSH_SHOW_PROMPT=1 npm run dev
 ```
 
 ```
-[system prompt 清单]
-   -100  harness:identity  (56 字符)
-      0  deployment:persona  (28 字符)
-    100  tools:guidance  (214 字符)
-    110  guard:read-only  (0 字符)
---- 拼出来的 system prompt（302 字符）---
+[system prompt inventory]
+   -100  harness:identity  (56 ch)
+      0  deployment:persona  (28 ch)
+    100  tools:guidance  (214 ch)
+    110  guard:read-only  (0 ch)
+--- 拼出来的 system prompt（302 ch）---
 ...
 ```
 
@@ -244,7 +244,7 @@ DSH_SHOW_PROMPT=1 npm run dev
 `demos/05-system-prompt/02-model-sees-it.mjs` 把模型真正收到的 system prompt 打出来。只读模式打开时，最后多了一段：
 
 ```
-当前是**只读模式**：write / edit / bash 都不可用，调用它们会被直接拒绝。
+当前是**readOnlyGuard**：write / edit / bash 都不可用，调用它们会被直接拒绝。
 你可以用 read / glob / grep 查看代码，并把建议的改法说出来，但不要试图自己动手。
 ```
 
@@ -265,7 +265,7 @@ DSH_SHOW_PROMPT=1 npm run dev
 
 | | 我们的 | dsh |
 |---|---|---|
-| 注册 | `注册表.注册()` | `ctx.systemPrompt.section()`，绑在插件生命周期上，插件卸载自动撤销 |
+| 注册 | `registry.register()` | `ctx.systemPrompt.section()`，绑在插件生命周期上，插件卸载自动撤销 |
 | 段落文本 | `string \| (() => string)` | `string \| ((context: AssembleContext) => string)`，**每次组装带上下文**（哪个 agent、哪个 scope） |
 | 变量 | 无 | `{{cwd}}` `{{model}}` `{{provider}}`，组装完再插值（**5.2**） |
 | 动态信息 | 无 | `context()` 是**另一套东西**，不拼进 system prompt（**5.3**） |
