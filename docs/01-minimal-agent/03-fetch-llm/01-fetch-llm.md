@@ -2,6 +2,67 @@
 
 > 本课目标：把上一课的 curl 变成代码，顺带把 `async` / `await` 讲清楚。
 
+## 痛点：curl 证明了通，但它不能当 agent 用
+
+1.2 那条 curl 跑通了，问题是它只能跑一次。要变成一个能对话的程序，有三件事 curl 干不了：
+
+- **每轮要重敲一遍**，而且历史得自己手动拼进 JSON 里
+- **响应是一大坨 JSON**，你得用眼睛在里面找 `choices[0].message.content`
+- **失败时它只给你一个状态码**——真正的原因往往写在 body 里，而 body 混在一堆握手信息中间
+
+第二条尤其要留神：**那个字段不一定存在**。模型只调工具不说话时它是 `null`，`choices` 数组理论上也可以是空的。用眼睛找的时候你会自动跳过这些情况，写代码时不会。
+
+## 解法：一句话和一张图
+
+**把 1.2 那条 curl 翻译成一个函数：拼请求体、发出去、把响应里那一个字段取出来——而"取字段"这一步要当成解析外部数据来写，不是当成读自己的对象。**
+
+```
+1.2 手敲的 curl：
+  你 ──→ curl ──→ 供应商 ──→ 一大坨 JSON ──→ 你用眼睛找 choices[0].message.content
+
+1.3 的 chat()：
+  messages ──→ 拼请求体 ──→ fetch ──→ 检查 HTTP 状态 ──→ 解析 JSON ──→ 取内容（可能没有）──→ string
+                                          ↓ 失败                        ↓ 没有
+                                      带 body 一起抛                 明确抛错，不返回空串
+```
+
+### 全部代码，一眼看完
+
+```ts
+export async function chat(messages: Message[], config: ResolvedConfig): Promise<string> {
+  const response = await fetch(`${config.baseURL}/chat/completions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${config.apiKey}` },
+    body: JSON.stringify({ model: config.model, messages }),
+  })
+
+  // fetch 只在"网络层面失败"时才 reject。HTTP 400/401/500 都算"成功收到响应"，
+  // 所以状态码必须自己看——而且要把 body 一起带上，真正的原因往往写在那儿。
+  if (!response.ok) {
+    throw new Error(`模型请求失败 ${response.status}：${await response.text()}`)
+  }
+
+  const completion = await response.json() as ChatCompletion
+  const content = completion.choices[0]?.message.content
+  if (content === undefined || content === null) {
+    throw new Error(`响应里没有文本内容：${JSON.stringify(completion.choices[0])}`)
+  }
+  return content
+}
+```
+
+### 用起来是一行
+
+```ts
+const reply = await chat([{ role: 'user', content: '你好' }], config)
+```
+
+### 产出
+
+和 1.2 那次 curl 拿到的是同一段文本，只是这回它是一个 `string` 变量，不是终端里的一大坨 JSON。
+
+下面看这十几行里的三个选择：`async/await` 到底在等什么、为什么要先给消息一个类型、以及那两个 `throw` 各自在防什么。
+
 ## async / await 的最小心智模型
 
 ```ts
@@ -33,7 +94,9 @@ export interface Message {
 
 `ChatCompletion` 只声明了我们真正会读的字段（`choices[].message.content` 和 `finish_reason`），没有把响应的每个字段抄一遍。**类型是给人看的说明，不是响应的复印件**——多写的字段既不会被检查，也会在响应变化时变成谎言。
 
-## 发请求：[`src/llm.ts`](../../../src/llm.ts)
+## 那两个 `throw` 各自在防什么
+
+完整文件见 [`src/llm.ts`](../../../src/llm.ts)。
 
 ```ts
 export async function chat(messages: Message[], config: Config & { apiKey: string }): Promise<string> {

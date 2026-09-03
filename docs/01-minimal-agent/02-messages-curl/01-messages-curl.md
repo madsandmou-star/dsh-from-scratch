@@ -1,6 +1,8 @@
 # 1.2 先用 curl 打通
 
 > 本课目标：在写任何代码之前，先用 curl 亲手发一次请求，把"模型调用"这件事去神秘化。
+>
+> **跑一下（不需要 key）**：`npm run demo demos/01-minimal-agent/03-wire-format.mjs` —— 同一条 curl 打向一个假服务器，请求和响应两头都完整打出来。
 
 ## 为什么先 curl
 

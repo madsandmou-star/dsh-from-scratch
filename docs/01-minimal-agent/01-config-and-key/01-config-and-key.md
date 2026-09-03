@@ -20,7 +20,79 @@ Authorization: Bearer {apiKey}
 
 前三项都是"部署时才知道"的事实，不该硬编码在代码里。所以它们进配置文件。
 
-## 密钥不进配置文件
+## 解法：一句话和一张图
+
+**把那三项"部署时才知道"的事实放进一个 JSON 文件，密钥只放它的环境变量名，然后在启动时一次性校验完、缺什么就立刻报错。**
+
+```
+硬编码在代码里（不行）：
+  src/llm.ts ── 'sk-abc123...' ──→ 提交进 git，历史里永远删不掉
+
+改成配置 + 环境变量：
+  dsh-learn.json ── baseURL / model / apiKeyEnv / systemPrompt ──┐
+                                                                  ├─→ loadConfig() ─→ 一份校验过的配置
+  process.env[apiKeyEnv] ── 真正的密钥 ─────────────────────────┘         （缺什么立刻抛错）
+```
+
+### 全部代码，一眼看完
+
+`loadConfig()` 就三步：找到文件、校验字段、取出密钥。每一步失败都换成一句**能照着敲**的提示。
+
+```ts
+export function loadConfig(): ResolvedConfig {
+  let raw: string
+  try {
+    raw = readFileSync(CONFIG_URL, 'utf8')
+  } catch {
+    throw new Error(`找不到配置文件 ${CONFIG_URL.pathname}\n先复制模板：cp dsh-learn.example.json dsh-learn.json`)
+  }
+
+  // JSON.parse 的返回类型是 any，`as Config` 不做任何运行时检查——真正把关的是下面这个循环。
+  const config = JSON.parse(raw) as Config
+  for (const field of ['baseURL', 'model', 'apiKeyEnv', 'systemPrompt'] as const) {
+    if (typeof config[field] !== 'string' || config[field] === '') {
+      throw new Error(`配置项 ${field} 缺失或不是非空字符串`)
+    }
+  }
+
+  const apiKey = process.env[config.apiKeyEnv]
+  if (apiKey === undefined || apiKey === '') {
+    throw new Error(`环境变量 ${config.apiKeyEnv} 没有设置。\n先导出密钥：export ${config.apiKeyEnv}=sk-...`)
+  }
+
+  return { ...config, apiKey, readOnly: config.readOnly ?? false, accounting: config.accounting ?? false }
+}
+```
+
+### 用起来是一行
+
+```ts
+const config = loadConfig()
+```
+
+### 产出
+
+```
+── ① 配置文件不存在 ──
+  ❌ 找不到配置文件 /tmp/.../x.json
+     先复制模板：cp dsh-learn.example.json dsh-learn.json
+
+── ② 少了 model 这一项 ──
+  ❌ 配置项 model 缺失或不是非空字符串
+
+── ③ 配置齐了，但环境变量没设 ──
+  ❌ 环境变量 DEMO_KEY 没有设置。
+     先导出密钥：export DEMO_KEY=sk-...
+
+── ④ 全都齐了 ──
+  ✅ 读到了：model=demo-model readOnly=false apiKey=*********
+```
+
+三条错误对应三个**不同的动作**：复制模板 / 补字段 / 导出环境变量。而 ④ 里密钥被打成星号——配置里存的是变量名，密钥只活在进程环境里。
+
+下面看这几十行里的每一个选择。
+
+## 为什么密钥只放变量名
 
 看起来最自然的写法是这样：
 
@@ -48,36 +120,21 @@ cp dsh-learn.example.json dsh-learn.json
 export DEEPSEEK_API_KEY=sk-...
 ```
 
-## 代码：[`src/config.ts`](../../../src/config.ts)
-
-三件事：找到文件、校验字段、取出密钥。
+## 为什么用 `import.meta.url` 定位文件
 
 ```ts
 const CONFIG_URL = new URL('../dsh-learn.json', import.meta.url)
 ```
 
-用 `import.meta.url` 而不是相对路径字符串，是为了让"在哪敲命令"不影响结果（[0.2](../../00-env-basics/02-typescript-esm/01-typescript-esm.md) 讲过）。
+不写相对路径字符串，是为了让"在哪敲命令"不影响结果（[0.2](../../00-env-basics/02-typescript-esm/01-typescript-esm.md) 讲过）。完整文件见 [`src/config.ts`](../../../src/config.ts)。
 
-```ts
-const config = JSON.parse(raw) as Config
+## `as Config` 不校验任何东西
 
-for (const field of ['baseURL', 'model', 'apiKeyEnv', 'systemPrompt'] as const) {
-  if (typeof config[field] !== 'string' || config[field] === '') {
-    throw new Error(`配置项 ${field} 缺失或不是非空字符串`)
-  }
-}
-```
+这是阶段 0 那条边界规则的第一次落地。`JSON.parse` 返回 `any`，`as Config` 只是告诉编译器"我打算把它当成这个类型"——**运行时一个字节都没检查**。真正的把关是那个 `for` 循环。
 
-这就是阶段 0 说的那条边界规则的第一次落地：**`as Config` 不校验任何东西**，真正的把关是下面那个循环。配置文件是外部输入，必须在这里检查。
+配置文件是外部输入。它可能被人手改坏、被别的脚本写坏、或者干脆是上一个版本的格式。
 
-```ts
-const apiKey = process.env[config.apiKeyEnv]
-if (apiKey === undefined || apiKey === '') {
-  throw new Error(`环境变量 ${config.apiKeyEnv} 没有设置。\n先导出密钥：export ${config.apiKeyEnv}=sk-...`)
-}
-```
-
-注意报错信息里带了**可以照着敲的下一步**。这是有意的：报错的读者是"卡住的人"，一条只说"配置错误"的消息等于什么都没说。
+而每一条报错都带了**可以照着敲的下一步**。这是有意的：报错的读者是"卡住的人"，一条只说"配置错误"的消息等于什么都没说。
 
 ## 为什么在这里就报错
 

@@ -31,6 +31,7 @@ npm run demo demos/04-tools/01-write-edit.mjs
 |---|---|---|
 | `01-minimal-agent/01-config-errors.mjs` | 1.1 | 三种配置缺失，三条能照做的提示；密钥只活在环境变量里 |
 | `01-minimal-agent/02-history-grows.mjs` | 1.4 | 每轮都把整个历史重发一遍，字节数怎么涨 |
+| `01-minimal-agent/03-wire-format.mjs` | 1.2 | 真的用 curl 打一次假服务器，请求与响应两头完整打出来 |
 
 ## 阶段 2：流式
 

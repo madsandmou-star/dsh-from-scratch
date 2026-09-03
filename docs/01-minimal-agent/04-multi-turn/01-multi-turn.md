@@ -20,7 +20,67 @@
 2. **总有一轮会超出上下文窗口**：这不是"如果"，是"什么时候"。阶段 16 的 compaction 就是为它准备的。
 3. **谁决定数组里有什么，谁就决定模型能做什么**：这门课后面所有的复杂度——工具结果、system prompt 组装、注入的上下文、压缩后的摘要——最终都落在"这个数组里该有什么"上。
 
-## 代码：[`src/index.ts`](../../../src/index.ts)
+## 解法：一句话和一张图
+
+**在客户端留一个数组，每轮把用户输入和模型回复都追加进去，每次请求都把整个数组重发一遍——"记忆"就是这个数组。**
+
+```
+模型的视角（无状态）：           客户端的视角（有数组）：
+  第 1 次请求 → 回答             messages = [system, user1]
+  第 2 次请求 → 回答             messages = [system, user1, assistant1, user2]
+  第 3 次请求 → 回答             messages = [system, user1, assistant1, user2, assistant2, user3]
+  （每次都是全新的、             ↑ 每轮追加两条，然后**整个**发出去
+    互不相关的一次调用）
+```
+
+### 全部代码，一眼看完
+
+```ts
+const messages: Message[] = [{ role: 'system', content: config.systemPrompt }]
+const rl = createInterface({ input: process.stdin, output: process.stdout })
+
+for await (const line of rl) {
+  const input = line.trim()
+  if (input === '/exit') break
+
+  messages.push({ role: 'user', content: input })
+  const reply = await chat(messages, config)
+  messages.push({ role: 'assistant', content: reply })
+
+  console.log(`\n模型 > ${reply}`)
+}
+```
+
+### 用起来
+
+```sh
+npm run dev
+```
+
+### 产出
+
+```
+第 1 轮：发出去 2 条消息，128 字节
+第 2 轮：发出去 4 条消息，215 字节
+第 3 轮：发出去 6 条消息，302 字节
+
+最后一轮发出去的完整历史：
+  system    你是助手。
+  user      你好
+  assistant （回复）
+  user      再说一句
+  assistant （回复）
+  user      最后一句
+```
+
+**每一轮都把前面全部重发一遍**——这就是长对话越来越贵、越来越慢的原因，阶段 16 讲 compaction 时会回到这里。
+
+下面看这十几行里的三个选择：为什么用 `for await` 而不是 `rl.question()`、失败之后为什么要把消息撤回、以及这个循环和真正的 agent loop 差在哪。
+
+
+## 为什么用 `for await` 而不是 `rl.question()`
+
+完整文件见 [`src/index.ts`](../../../src/index.ts)。
 
 ```ts
 const messages: Message[] = [
