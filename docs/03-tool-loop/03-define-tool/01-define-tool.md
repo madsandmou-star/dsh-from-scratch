@@ -20,6 +20,65 @@ export interface Tool {
 - `description` 是提示词（3.1 讲过），写清"什么时候用"比"做什么"更重要
 - `execute` 返回**给模型看的文本**——不是给人看的，所以不要加颜色、进度条、装饰性排版
 
+## 解法：一句话和一张图
+
+**给工具定一个四字段的接口，前三个字段拿去拼请求里的 `tools`，第四个字段由我们自己调用；而调用之前必须把模型给的参数当成外部输入重新校验一遍。**
+
+```
+Tool 接口 ──┬─ name / description / parameters ──→ 转成 wire 格式 ──→ 请求的 tools 字段
+            └─ execute(args) ───────────────────→ 我们自己跑
+                                    ↑
+                          模型给的 args 是**未校验**的：
+                          可能不是合法 JSON、缺字段、类型不对、路径越界
+```
+
+### 全部代码，一眼看完
+
+```ts
+export interface Tool {
+  name: string                                              // 模型用它发起调用
+  description: string                                       // 给模型看的提示词
+  parameters: Record<string, unknown>                       // JSON Schema，模型据此生成参数
+  execute(args: Record<string, unknown>): Promise<string>   // 我们自己跑
+}
+```
+
+两道通用的关：
+
+```ts
+function requireString(args: Record<string, unknown>, field: string): string {
+  const value = args[field]
+  if (typeof value !== 'string' || value === '') {
+    throw new Error(`参数 ${field} 必须是非空字符串，实际收到：${JSON.stringify(value)}`)
+  }
+  return value
+}
+
+function resolveInsideCwd(displayPath: string): string {
+  const absolute = resolve(CWD, displayPath)
+  const relativeToCwd = relative(CWD, absolute)
+  // 不要用 includes('..') 判断——resolve 之后再 relative，看最终落点。
+  if (relativeToCwd.startsWith('..') || isAbsolute(relativeToCwd)) {
+    throw new Error(`路径越界：${displayPath} 解析后落在工作目录之外`)
+  }
+  return absolute
+}
+```
+
+### 产出
+
+```
+── ① 正常 ──          →    1: hello
+── ② 参数被截断 ──     → 错误：参数不是合法的 JSON（Unterminated string…）。收到的原文：{"path": "a.tx
+── ③ 缺字段 ──         → 错误：参数 path 必须是非空字符串，实际收到：undefined
+── ④ 类型不对 ──       → 错误：参数 path 必须是非空字符串，实际收到：42
+── ⑤ 路径越界 ──       → 错误：路径越界：../../etc/passwd 解析后落在工作目录之外
+── ⑥ 工具名是幻觉 ──   → 错误：不存在名为 summarize 的工具。可用工具：read, write, edit, bash, glob, grep
+```
+
+**六种情况全都变成了文本，一次异常都没抛。** 下面看这个划分背后的三个理由。
+
+
 ## 参数是不可信输入
 
 模型生成的 `arguments` 是一段 JSON **文本**。它可能：
@@ -134,6 +193,20 @@ body: JSON.stringify({ model: config.model, messages, stream: true, tools: toWir
 ```
 
 注意那两块碎片 `{"path": "src/tool` + `.ts"}` 被 3.2 的累积器正确拼成了完整参数——**这一课是站在上一课的成果上跑起来的**。
+
+## 教 debug：模型不调工具，或者老是调错
+
+这两个症状的根因几乎都在 `description` 和 `parameters` 上，而不在执行代码里。按这个顺序查：
+
+```ts
+console.error(JSON.stringify(toWireTools(tools), null, 2))   // 请求里到底带了什么
+```
+
+- **模型完全不调工具** → 先确认 `tools` 字段真的发出去了（3.1 就是这么撞的墙），再看 `description` 有没有写清"**什么时候**用"——只写"做什么"的描述，模型不知道何时该用
+- **调了但参数总是错** → 看 `parameters` 的 JSON Schema：`required` 有没有列全、每个字段的 `description` 有没有给例子
+- **调了不该调的工具** → 两个工具的描述边界模糊。这不是模型笨，是描述没划清界限
+
+**工具描述是提示词，改它比改代码更常解决问题。**
 
 ## 对照 dsh
 

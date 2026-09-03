@@ -68,6 +68,86 @@ await bashTool.execute({ command: `grep -rn "${patternFromModel}" .` })
 
 **注意 B 和 C 的差别不只是"装没装"。** dsh 用的是打包进来的二进制，而且是**直接 spawn 它、不经过 shell**——这一点比"用 rg 而不是 grep"重要得多。
 
+## 解法：一句话和一张图
+
+**给搜索两个自己的工具：一个共用的目录遍历器负责跳过噪音目录，`glob` 把文件名模式编译成正则，`grep` 逐行匹配——全程不经过 shell。**
+
+```
+走 bash（三个坑）：                     走专门工具：
+  模型给 pattern                         模型给 pattern
+       ↓ 拼进命令行字符串                     ↓ 直接当参数用
+  bash -c "grep -rn '<pattern>' ."       walkFiles() ─→ 跳过 node_modules/.git/dist
+       ↓ shell 解释 $( ) ` ` * ;              ↓
+  ① 注入  ② -开头变选项  ③ 全是噪音       new RegExp(pattern) 逐行匹配
+                                             ↓ 结果数上限 + 逐行截断
+                                         文件:行号: 内容
+```
+
+### 全部代码，一眼看完
+
+两个工具共用一个遍历器：
+
+```ts
+const SKIPPED_DIRS = new Set(['.git', 'node_modules', 'dist', 'lib', 'coverage', '.cache'])
+
+async function* walkFiles(root: string): AsyncGenerator<string> {
+  const pending = [root]
+  let walked = 0
+  while (pending.length > 0) {
+    const dir = pending.pop()
+    if (dir === undefined) return
+    // 目录可能在遍历途中被删、或者没权限：跳过它，别让整次搜索失败。
+    const entries = await readdir(dir, { withFileTypes: true }).catch(() => [])
+    for (const entry of entries) {
+      const fullPath = resolve(dir, entry.name)
+      if (entry.isDirectory()) {
+        if (!SKIPPED_DIRS.has(entry.name)) pending.push(fullPath)
+      } else if (entry.isFile()) {
+        if (++walked > MAX_WALKED_FILES) return
+        yield fullPath
+      }
+      // 符号链接既不进也不 yield：跟着走可能绕回自己，变成无限循环。
+    }
+  }
+}
+```
+
+glob 编译成正则，**正则元字符必须转义**（否则 `a.ts` 的 `.` 会匹配任意字符）：
+
+```ts
+function globToRegExp(glob: string): RegExp {
+  let pattern = ''
+  for (let i = 0; i < glob.length; i++) {
+    const ch = glob[i] ?? ''
+    if (ch === '*') {
+      if (glob[i + 1] === '*') { pattern += '.*'; i++; if (glob[i + 1] === '/') i++ }
+      else pattern += '[^/]*'
+    } else if (ch === '?') pattern += '[^/]'
+    else pattern += ch.replace(/[.+^${}()|[\]\\]/g, '\\$&')
+  }
+  return new RegExp(`^${pattern}$`)
+}
+```
+
+### 产出
+
+```
+── ① glob：src 下的 ts，最近修改的排前面 ──
+  src/tool.ts / src/index.ts / src/types.ts …
+
+── ③ grep：这个函数用在哪 ──
+  src/tool.ts:51: function requireString(args: Record<string, unknown>, field: string): string {
+  …（共 16 行）
+
+── ④ 模型写了个编译不过的正则 ──
+  拒绝：pattern 不是合法的正则表达式：Invalid regular expression: /(/: Unterminated group
+
+── ⑥ 匹配太多 ──
+  [共 89195 处匹配，只显示前 100 处。请把 pattern 或 include 写得更具体。]
+```
+
+下面看四个选择：忽略列表为什么是必需品、glob 为什么按修改时间排序、grep 的三种输出各自在回答什么，以及**我们补不掉的那个洞**。
+
 ## 实现：一个遍历器 + 一个 glob 编译器
 
 两个工具共用一个目录遍历：
@@ -224,6 +304,21 @@ setTimeout(() => console.log('【看门狗】3 秒到了，我醒了'), 3000)
 ```
 
 这是这门课第二个明知故犯的洞（第一个是 4.2 的 bash 没有权限）。**两个都不是疏忽，是"先把机制讲清楚，再用正确的办法补"的顺序问题。**
+
+## 教 debug：搜索结果不对时，先分清"没找到"和"没搜到"
+
+这两件事完全不同，但症状都是"结果是空的"：
+
+```ts
+console.error(`[遍历] ${displayPath}`)   // 临时加在 walkFiles 的循环里
+```
+
+- **一个文件都没遍历到** → 起点错了（`path` 参数、或者 `CWD` 不是你以为的那个目录）
+- **遍历到了但没匹配** → 用 `node -e "console.log(/你的正则/.test('那一行'))"` 单独试那个正则
+- **匹配了但结果里没有** → 撞上了 `MAX_RESULTS` 或 `MAX_WALKED_FILES` 的上限，看输出末尾那行说明
+- **结果全是 node_modules** → `SKIPPED_DIRS` 里少了一项
+
+**先证明"我走到那个文件了"，再怀疑匹配逻辑。** 顺序反了会浪费很多时间在调正则上。
 
 ## 对照 dsh
 

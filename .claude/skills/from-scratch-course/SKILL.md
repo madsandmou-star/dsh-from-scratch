@@ -58,7 +58,7 @@ One file, one idea. The split test is **topic singleness**, not length — a sin
 4. **the call site** — how few lines it takes to use;
 5. **the output it produces.**
 
-Only then take the design apart choice by choice. Jumping from the pain straight into "field one, field two" is the single most common way a lesson becomes unreadable: the reader holds no whole, so no part has anywhere to attach. If the complete code will not fit on a screen, the lesson is carrying two topics — split it first.
+Only then take the design apart choice by choice. Two lesson kinds are exempt and should say so in their own opening: an **orientation lesson** (tooling, environment, vocabulary — nothing is built) opens with the concrete question it answers, and an **extracted deep dive** (`02-`, `03-` split off a main line) opens by restating the question it was split out to answer. A **stage review** has its own anatomy entirely. Everything else takes the spine. Jumping from the pain straight into "field one, field two" is the single most common way a lesson becomes unreadable: the reader holds no whole, so no part has anywhere to attach. If the complete code will not fit on a screen, the lesson is carrying two topics — split it first.
 
 - **Do before naming.** Show what happens on screen, then name the concept behind it.
 - **Code is the textbook.** Every snippet in the prose has a real, openable, runnable file behind it. No orphan snippets.
@@ -67,6 +67,7 @@ Only then take the design apart choice by choice. Jumping from the pain straight
 - **Code is in the target's language; the teaching is in the learner's.** Identifiers, types and file names follow the reference codebase's own conventions — the learner is building the muscle memory they will use at work, and a course whose endpoint is "read the real source" must have names that line up with it. Every word of explanation goes in comments and prose. Writing identifiers in the learner's natural language feels friendly for one lesson and is wrong by the tenth: it reads like nothing they will ever encounter again, and it silently breaks the comparison the whole course rests on.
 - **Teaching comments explain *what* and *why*.** This inverts the usual production rule, and is correct here: the reader may be seeing the syntax for the first time. Comments and code drift apart the moment you edit one without the other — don't.
 - **No homework.** Never "now implement X yourself". The reader's time goes into *understanding*, not being tested.
+- **A stage review recaps that stage's debug moves in one table** — which move, and what symptom it is for. Learners hit these symptoms weeks later, long after the lesson that taught the move; the table is where they will look.
 - **Every lesson teaches one debug move**: which line of the error to read, what to log, where to breakpoint, how to prove the code even ran. A lesson that only shows the working answer has taught nothing about the day it stops working.
 - **Compare to the real source** with verified paths: open the file before citing it, and name the stage where the simplification gets repaid.
 - **Analogies must include where they break.** A wrong analogy costs more than none.
@@ -101,7 +102,7 @@ Every method improvement discovered while teaching belongs **here**, not only in
 5. Does it use any concept the reader has not met yet, without a one-line deferral?
 6. Does it teach one debug move?
 7. Does every hole it leaves open carry a marker naming why and where the real fix goes?
-8. Are all cited source paths and symbol names verified against the current tree?
+8. Are all cited source paths and symbol names verified against the current tree — **including the literal strings inside quoted code**? A checker that only validates paths will not catch a lesson quoting an error message the program no longer prints.
 9. Does the "why theirs is more complex" column say what the complexity bought?
 10. Would the reader be able to *predict* the next stage's pain?
 
@@ -121,4 +122,5 @@ Every method improvement discovered while teaching belongs **here**, not only in
 | Prose and code pushed, lesson never taught in the conversation | The learner has to reverse-engineer what you meant to say |
 | Treating "I don't understand" as the learner's problem | The defect stays in the file and hits every later reader |
 | Method lessons written only into the current course's rules | The next course starts over from the first draft |
+| A bulk rename applied to prose as well as code | Error messages in the lessons silently stop matching what the program prints — the citation checker sees paths, not strings |
 | Identifiers written in the learner's natural language | Reads like nothing they will meet at work, and breaks the name-level comparison with the real source |

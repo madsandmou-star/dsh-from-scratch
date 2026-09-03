@@ -8,6 +8,85 @@
 
 先把 bash 做出来，再回答这个问题。
 
+## 解法：一句话和一张图
+
+**用 `bash -c` 起一个子进程收它的输出，然后把四件必然会出事的事管起来：超时、输出爆炸、退出码、以及"每次都是新 shell"。**
+
+```
+模型给 command ──→ spawn('bash', ['-c', command]) ──→ 子进程
+                                                       │
+        ┌──────────────────────────────────────────────┤
+        │ stdout ──→ 尾部收集器（边收边裁，只留末尾）    │
+        │ stderr ──→ 尾部收集器（单独标节）             │
+        │ 超时   ──→ SIGKILL                            │
+        │ 退出码 ──→ 作为一行标记附在末尾，不抛异常      │
+        └──────────────────────────────────────────────┘
+                          ↓
+             stdout + [stderr] + [退出码：N] / [超时：…]
+```
+
+### 全部代码，一眼看完
+
+```ts
+function runCommand(command: string, workdir: string, timeoutMs: number, signal: AbortSignal): Promise<CommandOutcome> {
+  return new Promise(resolve => {
+    const child = spawn('bash', ['-c', command], { cwd: workdir })
+    const stdout = new TailBuffer()
+    const stderr = new TailBuffer()
+    let timedOut = false
+
+    child.stdout.setEncoding('utf8')
+    child.stderr.setEncoding('utf8')
+    child.stdout.on('data', (chunk: string) => { stdout.push(chunk) })
+    child.stderr.on('data', (chunk: string) => { stderr.push(chunk) })
+
+    // SIGKILL 而不是 SIGTERM：命令可以捕获 SIGTERM 然后赖着不走。
+    const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL') }, timeoutMs)
+    const onOuterAbort = () => { child.kill('SIGKILL') }
+    signal.addEventListener('abort', onOuterAbort, { once: true })
+
+    // 'close' 而不是 'exit'：exit 触发时 stdout 可能还没读完，末尾会莫名其妙丢掉。
+    child.on('close', (code, killedBy) => {
+      clearTimeout(timer)
+      signal.removeEventListener('abort', onOuterAbort)   // 注册和注销要成对
+      resolve({ stdout: stdout.read(), stderr: stderr.read(), code, killedBy, timedOut })
+    })
+  })
+}
+```
+
+输出收集器只有十几行，关键是**边收边裁**：
+
+```ts
+class TailBuffer {
+  private text = ''
+  private dropped = false
+  push(chunk: string): void {
+    this.text += chunk
+    if (this.text.length > MAX_OUTPUT_CHARS) {
+      this.text = this.text.slice(-MAX_OUTPUT_CHARS)   // 保留末尾：命令的结论在最后
+      this.dropped = true
+    }
+  }
+}
+```
+
+### 产出
+
+```
+── ① 正常 ──                    hello
+── ② 命令失败 ──                [stderr] ⏎ ls: cannot access '/nonexistent-dir' ⏎ [退出码：2]
+── ③ grep 没找到 ──             (没有输出) ⏎ [退出码：1]      ← 不是故障，是结果
+── ④ 这一次 cd 了 ──            /tmp
+── ⑤ 下一次还记得吗 ──          /home/…/play41                ← 不记得
+── ⑥ 输出爆炸 ──                [前面的输出已被丢弃，只保留末尾 30000 字节] …
+── ⑦ 超时 ──                    [超时：跑满 500ms 后被杀掉] ⏎ [被信号杀掉：SIGKILL]
+── ⑧ workdir 越界 ──            拒绝：路径越界：../.. 解析后落在工作目录之外
+```
+
+下面看这四件事各自为什么只能这么做。
+
+
 ## 一次执行要处理四件事
 
 ```ts

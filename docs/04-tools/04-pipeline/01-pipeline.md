@@ -17,6 +17,84 @@
 
 把它们塞进每个工具里，是四份重复；塞进 `runTurn()` 里，是把 agent 循环变成一个什么都管的大函数。**正确的位置是两者之间：一条所有工具都要走的管线。**
 
+## 解法：一句话和一张图
+
+**把"执行一个工具"从一行 `await tool.execute()` 变成一条三段管线：执行前放行或拒绝、执行时带超时和取消、执行后加工结果。每一段都由一组可插拔的护栏挂上去。**
+
+```
+改之前：
+  runTool ──→ tool.execute(args) ──→ 结果
+
+改之后：
+  runTool ──→ [执行前] 护栏依次表态 ──→ 拒绝就到此为止
+                    ↓ 放行
+              [执行]  setTimeout + AbortSignal 环绕 tool.execute()
+                    ↓
+              [执行后] 护栏依次加工结果（失败也走这里）
+                    ↓
+                  结果
+```
+
+### 全部代码，一眼看完
+
+一层护栏是三个可选钩子：
+
+```ts
+export interface Guard {
+  name: string
+  before?(call: ToolCall): Promise<PreDecision> | PreDecision
+  after?(call: ToolCall, result: string): Promise<string> | string
+}
+```
+
+管线本体：
+
+```ts
+const controller = new AbortController()
+const call: ToolCall = { toolName: name, args, signal: controller.signal }
+
+// 执行前：任何一层拒绝就到此为止；**一层自己抛异常也算拒绝**（fail-closed）。
+const decision = await runBefore(guards, call)
+if (!decision.allow) return await runAfter(guards, call, `错误：${decision.reason}`)
+
+const timer = setTimeout(() => { controller.abort(new Error(`工具执行超过 ${timeoutMs}ms`)) }, timeoutMs)
+let result: string
+try {
+  result = await tool.execute(args, call.signal)
+  // 取消是合作式的：工具可能杀掉子进程后**正常返回**。谁施加的限制，谁负责解释。
+  if (controller.signal.aborted) result = `错误：工具 ${name} 超过了 ${timeoutMs}ms 的时间上限，已被中止。\n[中止前拿到的输出]\n${result}`
+} catch (error) {
+  result = controller.signal.aborted
+    ? `错误：工具 ${name} 超过了 ${timeoutMs}ms 的时间上限，已被中止。`
+    : `错误：${error instanceof Error ? error.message : String(error)}`
+} finally {
+  clearTimeout(timer)
+}
+
+// 执行后：这里**不**失败即拒绝——结果已经产生了，一个记账钩子挂掉不该把它吃掉。
+return await runAfter(guards, call, result)
+```
+
+### 用起来是一行
+
+```ts
+const guards = [accountingGuard(config.accounting), readOnlyGuard(config.readOnly), outputBackstop()]
+```
+
+### 产出
+
+```
+── ② 只读模式拦下 write ──   错误：被护栏「只读模式」拒绝：当前是只读模式，write 不能用。…
+── ④ 统一超时（上限 1 秒）── 错误：工具 bash 超过了 1000ms 的时间上限，已被中止。
+── ⑤ 执行后兜底截断 ──       xxxx…（共 60034 字符）
+── ⑥ 护栏自己出错 ──         错误：护栏「坏掉的护栏」自己出错了：我自己炸了
+── ⑦ 执行后钩子出错 ──       [护栏 坏掉的记账 的执行后钩子出错，已忽略] 记账炸了
+                             （结果照常返回）
+```
+
+下面是这条管线的五条规矩，每一条都能从上面那段代码里指出来。
+
+
 ## 三段：执行前 / 执行 / 执行后
 
 ```ts
@@ -268,6 +346,28 @@ dsh 里对应的东西叫 **plan 模式**，是一整个包（`dsh/packages/plan
 **这不是管线设计得不好，是"在同一个线程里做超时"这件事的物理上限。** 出路只有两条，都是把工作挪出这个线程：换个不回溯的引擎（ripgrep）、或者塞进子进程/worker（这样 SIGKILL 才有意义）。dsh 两条都占了。
 
 **知道自己的机制在哪里失效，和有这个机制一样重要。**
+
+## 教 debug：护栏没生效，或者结果被谁改了
+
+管线上出问题最难受的地方是**不知道是哪一层干的**。最省事的办法是临时插几层"什么都不做只打印"的护栏：
+
+```ts
+const trace = label => ({
+  name: `trace:${label}`,
+  before(call) { console.error(`[${label}] 执行前 ${call.toolName}`); return { allow: true } },
+  after(call, result) { console.error(`[${label}] 执行后 ${result.length} 字符`); return result },
+})
+
+const guards = [trace('最外'), accounting(true), trace('中间'), readOnlyGuard(true), trace('最内'), outputBackstop()]
+```
+
+对着输出看：
+
+- **某层的"执行前"没打印** → 它前面有人拒绝了，链短路了
+- **"执行后"的字符数在某两层之间跳变** → 就是那一层改了结果
+- **执行前打印了但执行后没打印** → 那一层的 `after` 抛了异常（会有 `[护栏 … 已忽略]` 那行）
+
+**顺序就是权力**：数组里越靠前的层越外面，能拦住后面所有人，也能改他们的结果。
 
 ## 对照 dsh
 

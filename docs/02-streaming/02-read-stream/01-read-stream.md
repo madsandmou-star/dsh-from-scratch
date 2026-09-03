@@ -35,6 +35,77 @@
 >
 > Python 里同样成立：`requests` 的 `iter_content()` 给的也是任意大小的块。你之所以可能没踩过，是因为一直在用 `iter_lines()` —— 那是库替你做了分帧。
 
+## 解法：一句话和一张图
+
+**自己留一个 buffer：每来一块字节就解码追加，然后反复找空行边界，找到一条就产出一条；末尾那截没有终止符的残片直接丢掉。**
+
+```
+网络给你的（chunk 边界是随机的）：
+  ┌──────────────┬────────────┬─────────────────┐
+  │ data: {"n":1 │ }\n\ndata: │ {"n":2}\n\n      │
+  └──────────────┴────────────┴─────────────────┘
+        ↓ 追加进 buffer，反复找 '\n\n'
+协议真正的事件（这才是你要的）：
+  ┌───────────┐ ┌───────────┐
+  │ {"n":1}   │ │ {"n":2}   │
+  └───────────┘ └───────────┘
+```
+
+### 全部代码，一眼看完
+
+```ts
+export async function* parseSse(stream: ReadableStream<Uint8Array>): AsyncGenerator<string> {
+  // `{ stream: true }` 是关键：结尾处不完整的多字节字符会被留在解码器内部，
+  // 等下一块字节补齐，而不是吐出一个乱码 �。
+  const decoder = new TextDecoder('utf-8')
+  let buffer = ''
+
+  for await (const chunk of stream) {
+    buffer += decoder.decode(chunk, { stream: true })
+
+    // 用 while 而不是 if：一个网络 chunk 里可能同时到了好几条事件。
+    let boundary: number
+    while ((boundary = buffer.indexOf('\n\n')) !== -1) {
+      const rawEvent = buffer.slice(0, boundary)
+      buffer = buffer.slice(boundary + 2)
+
+      const dataLines = rawEvent.split('\n')
+        .filter(line => line.startsWith('data:'))
+        .map(line => line.slice('data:'.length).trimStart())
+
+      if (dataLines.length > 0) yield dataLines.join('\n')
+    }
+  }
+
+  // 流结束了。buffer 里剩下的是**没有终止符**的残片——按 SSE 规范它还不构成一个事件，
+  // 所以这里什么都不做，直接丢掉。
+}
+```
+
+### 用起来
+
+```ts
+for await (const data of parseSse(response.body)) { /* data 是一条完整事件的负载 */ }
+```
+
+### 产出
+
+同一份数据，五种切法，产出完全一样：
+
+```
+── ① 全部挤在一个 chunk 里（不切）──            共 4 条
+── ② 前两条一块，后两条一块（切在字节 30）──      共 4 条
+── ③ 切在 JSON 中间（切在字节 20）──             共 4 条
+── ④ 切开"你"这个字（切在第 1 和第 2 字节之间）── 共 4 条
+── ⑤ 一个字节一块——最极端的切法 ──               共 4 条
+
+── ⑥ 结尾是半条没有终止符的残片 ──
+  产出 1 条：{"n":1}
+  第二条被丢掉了——按 SSE 规范它还不构成一个事件。
+```
+
+下面看这二十行里的两个关键选择。
+
 ## 两个修法
 
 ### ① 用带状态的解码器接住半个字符

@@ -88,6 +88,20 @@ packages:
 
 顺带记住一件事：`dsh/` 里的东西**永远不要改**。它是对照物，不是工作区。
 
+## 教 debug：三个"到底跑的是哪个"
+
+环境问题的第一天几乎总是这三句话之一。它们的共同点是：**你以为跑的东西和实际跑的东西不是一个**。
+
+```sh
+node -p "process.execPath"        # 到底是哪个 node 在跑（nvm/asdf/系统自带常常同时存在）
+node -p "process.version"         # 版本对不对（这门课要 ^22.19 || >=24）
+node -p "require.resolve('tsx')"  # 这个包到底是从哪个 node_modules 解析到的
+```
+
+第三条尤其有用。JavaScript 的模块解析会沿着目录往上找 `node_modules`，所以"我明明装了"和"它明明说找不到"可以同时成立——你装在了子目录，而运行的入口在父目录，或者反过来。
+
+**排查顺序永远是从外往里**：先确认二进制，再确认版本，最后才怀疑代码。
+
 ## 对照 dsh：它为什么不用 Node 原生的剥离
 
 dsh 曾经用 Node 原生的 `--experimental-transform-types` 从源码启动 `dsh` 命令。Node 26 删掉了这个 flag，只留下 strip 模式——而 strip 模式拒绝 dsh 源码里必需的语法：vendored Cordis 的参数属性、`vendor/hmr` 的 `@Inject` 装饰器、`vendor/` 与 `packages/workflow` 里的 enum 和 namespace。dsh 的 engines 范围覆盖 Node 26，所以那条启动链在那里根本起不来。

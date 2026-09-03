@@ -24,6 +24,70 @@
 
 代码是 [`src/index.ts`](../../../src/index.ts) 里的 `runTurn()`。核心只有一句话：**没有工具调用就返回，有就执行完再来一轮。**
 
+## 解法：一句话和一张图
+
+**把"问一次模型"包进一个循环：模型要求调工具就执行、把结果塞回历史、再问一次；直到它不再要求调工具，或者撞上步数上限。**
+
+```
+一个 turn（用户说一句话，到没有未了结的事为止）：
+
+  step 1: 请求 → assistant(tool_calls=[read a.txt]) → 执行 → 追加 tool 结果
+  step 2: 请求 → assistant(tool_calls=[read b.txt]) → 执行 → 追加 tool 结果
+  step 3: 请求 → assistant("两个文件都读完了")      → 没有 tool_calls，turn 结束
+                                                       ↑
+                                          或者撞上 MAX_STEPS，强制停下
+```
+
+### 全部代码，一眼看完
+
+```ts
+const MAX_STEPS = 10
+
+async function runTurn(): Promise<void> {
+  for (let step = 1; step <= MAX_STEPS; step++) {
+    let text = ''
+    let toolCalls: ToolCall[] = []
+    for await (const event of chatStream(messages, config)) {
+      if (event.type === 'text') { process.stdout.write(event.text); text += event.text; continue }
+      toolCalls = event.calls
+    }
+
+    // content 可能是 null（模型只调工具不说话），但这条 assistant 消息**必须**进历史：
+    // 下一轮请求里，每条 tool 结果都要能找到它对应的调用。
+    messages.push({
+      role: 'assistant',
+      content: text === '' ? null : text,
+      ...toolCalls.length === 0 ? {} : { tool_calls: toolCalls.map(toWire) },
+    })
+
+    // 没要求调工具 = 给出了最终回答 = 这个 turn 结束了。
+    if (toolCalls.length === 0) return
+
+    for (const call of toolCalls) {
+      const result = await runTool(call.name, call.arguments)
+      // tool_call_id 把结果和调用配对。少一条、或者 id 对不上，下一次请求就是非法的。
+      messages.push({ role: 'tool', tool_call_id: call.id, content: result })
+    }
+  }
+  console.error(`\n[已达最大步数 ${MAX_STEPS}，停止本轮]`)
+}
+```
+
+### 产出
+
+```
+你 > test.mjs 跑不过，修好它
+
+模型 > [工具] bash({"command":"node test.mjs",...})  → FAIL: add(2, 3) 期望 5，实际 -1 / [退出码：1]
+模型 > [工具] read({"path":"add.mjs"})               →    1: export function add(a, b) {
+模型 > [工具] edit({"path":"add.mjs",...})           → 已修改 add.mjs
+模型 > [工具] bash({"command":"node test.mjs",...})  → PASS
+模型 > add 里写成了减法，已改成加法，测试通过了。
+```
+
+**这就是 agent 的本质**——一个 while 循环。下面看用户视角和模型视角的差别，以及三个必须做对的细节。
+
+
 ## 用户视角 vs 模型视角
 
 用户看到的：
@@ -94,6 +158,22 @@ const MAX_STEPS = 10
 防的是"模型反复调工具但永远不给最终回答"——它可能陷在自己看不出来的循环里（读 A 发现要读 B，读 B 发现要读 A）。**没有这个上限，agent 会一直烧钱直到你按 Ctrl-C。**
 
 这是 agent 和普通程序的一个根本差别：**循环的终止条件由模型决定，而模型不保证会终止。** 所以终止条件必须由外部兜底。
+
+## 教 debug：turn 不结束，或者供应商报 400
+
+tool loop 出问题时，八成是 `messages` 数组进了非法状态。**把整个数组打出来看**：
+
+```ts
+console.dir(messages, { depth: null })   // 在每次 chatStream 之前
+```
+
+三条一看就知道对不对的规则：
+
+1. **每条 `role: 'tool'` 的 `tool_call_id`，必须能在前面某条 assistant 的 `tool_calls` 里找到** —— 找不到，供应商直接 400
+2. **每个 `tool_calls` 里的调用，后面必须都有对应的 tool 结果** —— 少一条也是 400（这就是下面那个"悬空的工具调用"）
+3. **turn 不结束**：看那串重复的调用。模型读 A 发现要读 B、读 B 发现要读 A，是它自己看不出来的环——`MAX_STEPS` 是唯一的出口
+
+`npm run demo demos/03-tool-loop/04-max-steps.mjs` 演示的正是第三条。
 
 ## 中途失败：悬空的工具调用
 

@@ -14,6 +14,75 @@ src/index.ts(11,10): error TS2305: Module '"./llm.ts"' has no exported member 'c
 
 **这就是类型系统真正值钱的地方**（0.2 讲过）：它不保证你的逻辑对，但它保证你改了一处之后，所有受影响的地方都会亮红灯。
 
+## 解法：一句话和一张图
+
+**把 `chat()` 换成一个异步生成器 `chatStream()`：它一边解析 SSE 一边 `yield` 文本增量，调用方自己 `for await` 收着、自己攒完整文本。**
+
+```
+1.3 的 chat()：
+  chatStream ──→ 等全部收完 ──→ return 一个完整 string
+                                 （屏幕在这之前一片空白）
+
+2.3 的 chatStream()：
+  parseSse ─→ 解析一条 ─→ yield '你' ─→ 调用方上屏 + 自己攒
+           ─→ 解析一条 ─→ yield '好' ─→ 调用方上屏 + 自己攒
+           ─→ 收到 [DONE] ─→ 生成器正常结束
+           ─→ 没收到就结束 ─→ throw（这次回复不可信）
+```
+
+### 全部代码，一眼看完
+
+```ts
+export async function* chatStream(messages: Message[], config: ResolvedConfig): AsyncGenerator<string> {
+  const response = await fetch(`${config.baseURL}/chat/completions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${config.apiKey}` },
+    body: JSON.stringify({ model: config.model, messages, stream: true }),   // ← 只多了 stream
+  })
+  if (!response.ok) throw new Error(`模型请求失败 ${response.status}：${await response.text()}`)
+
+  let sawDone = false
+  for await (const data of parseSse(response.body)) {
+    if (data === '[DONE]') { sawDone = true; break }
+    const choice = (JSON.parse(data) as StreamChunk).choices[0]
+    const delta = choice?.delta.content
+    if (delta !== undefined && delta !== null && delta !== '') yield delta
+  }
+
+  // 干净地结束但没收到 [DONE]，说明这次回复被截断了——最阴的一种失败。
+  if (!sawDone) throw new Error('流在收到 [DONE] 之前就结束了：这次回复不完整，不可信')
+}
+```
+
+### 调用方
+
+```ts
+let reply = ''
+for await (const delta of chatStream(messages, config)) {
+  process.stdout.write(delta)   // 上屏
+  reply += delta                // 自己攒
+}
+messages.push({ role: 'assistant', content: reply })
+```
+
+### 产出
+
+```
+── ① 正常：收到了 [DONE] ──
+  屏幕上出现："这句话"
+  屏幕上出现："说到一半"
+  ✅ 正常结束，攒到的完整文本："这句话说到一半"
+
+── ③ 干净关闭，但没发 [DONE] —— 最阴的一种 ──
+  屏幕上出现："这句话"
+  屏幕上出现："说到一半"
+  ❌ 流在收到 [DONE] 之前就结束了：这次回复不完整，不可信
+  这时屏幕上已经有了 "这句话说到一半" —— 但它不完整，不能进历史。
+```
+
+下面看三件事：为什么选异步生成器而不是回调、调用方多出来的三处负担、以及断流时屏幕和历史该怎么办。
+
+
 ## 设计选择：异步生成器 vs 回调
 
 两种写法都能实现流式：
@@ -107,6 +176,20 @@ for await (const payload of parseSse(response.body)) {
 用 `console.error`（stderr）而不是 `console.log`——因为 stdout 正在被打字机效果占用，混在一起没法看。想只看调试信息就 `node ... 2>&1 >/dev/null`，想只看正常输出就 `2>/dev/null`。
 
 **把诊断输出和产品输出分到不同的流，是 CLI 程序的基本功。** dsh 对这条更严格：agent-spine 里连 `timer` 插件都被特意注明"不往 stdout 写任何东西"，因为 stdout 是 ACP/JSON-RPC 的协议通道，混进一个字节整个协议就废了。
+
+## 对照 dsh：它的流里不只有文本
+
+我们的 `chatStream()` 只 `yield` 一种东西：文本增量。dsh 的 `StreamChunk` 是一个**七成员的联合类型**（`dsh/packages/llm/llm/src/types.ts`）：
+
+| | 我们的 | dsh 的 | 为什么 dsh 更复杂 |
+|---|---|---|---|
+| 产出什么 | `string`（文本增量） | 七种：`text-delta` / `reasoning-delta` / `tool-call-delta` / `block-start` / `block-end` / `usage` / `finish` | 一次响应里可以有多个"块"并行流动：可见文本、思维链、几个工具调用 |
+| 怎么区分 | 不用区分 | 每种都带 `index`，把交错的碎片归位 | 阶段 3 你会手写这个归位逻辑，然后就明白为什么它该由协议层给出 |
+| 怎么知道一块结束了 | 不知道 | `block-end` 显式事件 | 不用靠猜"参数收全了没有" |
+| 结束之后 | 生成器 return | `finish` 之后**保证不再有任何 chunk** | 这是一条协议不变量，下游可以放心地把它当终点 |
+
+`dsh/packages/llm/llm-deepseek/src/translate.ts`（185 行）干的就是把 DeepSeek 的 wire chunk 翻译成这套内部协议——一个有状态的块装配器。阶段 3 我们会手写它的最小版本。
+
 
 ---
 

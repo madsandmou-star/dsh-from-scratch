@@ -4,6 +4,75 @@
 
 阶段 3 结束时，我们的 agent 能读文件、能循环调工具，但它**只能看，不能动**。这一课把 `write` 和 `edit` 加上，agent 第一次能改代码。
 
+## 痛点：它只能看，不能动
+
+阶段 3 结束时 agent 有了 `read`，能回答"这个文件里写了什么"。但你让它"把这个 bug 修一下"，它只能把改法**说**给你听，然后你自己去改。
+
+一个连文件都改不了的 coding agent，价值上限就是一个会读代码的聊天框。
+
+## 解法：一句话和一张图
+
+**加两个工具：`write` 负责创建或整体重写，`edit` 负责改一段——而 `edit` 定位的方式是「一段在文件里恰好出现一次的原文」。**
+
+```
+read（阶段 3）：  文件 ──→ 带行号的文本 ──→ 模型
+
+write：           模型给 path + content ──→ 整个文件被替换（原内容没了）
+edit：            模型给 path + old_string + new_string
+                        ↓ 数 old_string 在文件里出现几次
+                  0 次 → 报错「没找到，请先 read 确认原文」
+                  1 次 → 替换，返回改了多少字符
+                  >1 次 → 报错「出现了 N 次（第 X、Y 行），请多带上下文」
+```
+
+### 全部代码，一眼看完
+
+`write` 的难点全在"覆盖"这件事上：
+
+```ts
+const previousChars = await readFile(target, 'utf8').then(content => content.length, () => undefined)
+
+await mkdir(dirname(target), { recursive: true })     // 模型要写 src/utils/x.ts 时目录可能不存在
+await writeFile(target, content, 'utf8')
+
+// 区分创建和覆盖：模型经常搞错路径，"已覆盖（原 4000 字符 → 现 12 字符）"能让它当场发现。
+return previousChars === undefined
+  ? `已创建 ${displayPath}（${content.length} 字符）`
+  : `已覆盖 ${displayPath}（原 ${previousChars} 字符 → 现 ${content.length} 字符）`
+```
+
+`edit` 的核心是数出现次数，而不是直接 `replace`：
+
+```ts
+if (old_string === new_string) throw new Error('old_string 和 new_string 完全相同，这次替换不会改变任何东西。')
+
+const offsets = findAllOffsets(content, old_string)
+if (offsets.length === 0) {
+  throw new Error(`old_string 在 ${displayPath} 中没有找到。请先用 read 确认原文（注意空格、缩进和换行必须完全一致）。`)
+}
+if (offsets.length > 1) {
+  const lineNumbers = offsets.map(offset => content.slice(0, offset).split('\n').length)
+  throw new Error(
+    `old_string 在 ${displayPath} 中出现了 ${offsets.length} 次（第 ${lineNumbers.join('、')} 行），必须恰好一次。`
+    + '请在 old_string 里多带上前后几行上下文，让它变得唯一。',
+  )
+}
+await writeFile(target, content.replace(old_string, new_string), 'utf8')
+```
+
+### 产出
+
+```
+✅ write → 已创建 notes.md（4 字符）
+✅ write → 已覆盖 notes.md（原 4 字符 → 现 12 字符）
+❌ edit → old_string 在 demo.ts 中出现了 2 次（第 2、6 行），必须恰好一次。…
+❌ edit → old_string 在 demo.ts 中没有找到。请先用 read 确认原文…
+❌ edit → old_string 和 new_string 完全相同，这次替换不会改变任何东西。
+✅ edit → 已修改 demo.ts（替换了 32 字符 → 32 字符）
+```
+
+下面看这两个工具里的每一个选择：为什么覆盖要区分报告、为什么定位用"唯一字面匹配"而不是行号或 diff、以及三种失败为什么必须报出三条不同的错。
+
 ## write：覆盖是不可逆的
 
 `write` 很简单——给路径和内容，写进去。难的地方全在**它会覆盖已有文件**。

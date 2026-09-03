@@ -28,6 +28,33 @@
 >
 > 更值得记的是：**同一个坑换了个形状就没认出来。** 非流式的 `message.content` 和流式的 `delta.content` 是同一个字段的两种形态，我们只在一处设防。
 
+## 解法：一句话和一张图
+
+**在请求里多带一个 `tools` 字段告诉模型有哪些工具；模型想用时不说话，改为在响应里给出 `tool_calls`；我们执行完再用一种新的 role 把结果塞回历史。**
+
+```
+阶段 1 的一轮：
+  user ──→ 模型 ──→ assistant（一段文本）──→ 完
+
+有了工具之后的一轮：
+  user + tools ──→ 模型 ──→ assistant（content=null, tool_calls=[read(...)]）
+                                ↓ 我们执行 read
+                            tool（结果，靠 tool_call_id 配对）
+                                ↓ 带着结果再问一次
+                            assistant（这次是文本）──→ 完
+```
+
+三处改动，一处比一处小：
+
+| 改哪儿 | 改成什么 |
+|---|---|
+| **请求** | 多一个 `tools` 数组：每个工具是「名字 + 描述 + 参数的 JSON Schema」 |
+| **响应** | `finish_reason` 可能是 `tool_calls`，此时 `content` 是 `null`，`tool_calls` 里是模型要的调用 |
+| **历史** | 多一种 role：`tool`，用 `tool_call_id` 和那次调用配对 |
+
+这一课只把这三处**看清楚**（3.3 才真的写工具，3.4 才真的循环）。下面逐条看。
+
+
 ## 请求里多出来的 `tools`
 
 ```jsonc

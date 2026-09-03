@@ -137,7 +137,7 @@ DshFromScratch/
 ├── src/                # 教学代码（讲义里的每段代码都在这里能打开）
 ├── demos/              # 每一课的可运行演示，都不需要 API key（见 demos/README.md）
 ├── scripts/            # npm run check：链接与源码引用自检
-└── dsh/                # ← 参考源码（submodule，readOnly，版本固定）
+└── dsh/                # ← 参考源码（submodule，只读，版本固定）
 ```
 
 参考源码就在 `dsh/` 里，不用另外找：
