@@ -53,9 +53,9 @@ const guards = [accounting(config.accounting), readOnlyGuard(config.readOnly), o
 
 ```ts
 try {
-  decision = await guard.before(context)
+  decision = await guard.before(call)
 } catch (error) {
-  return { allow: false, reason: `Guard「${guard.name}」自己出错了：${...}` }
+  return { allow: false, reason: `护栏「${guard.name}」自己出错了：${...}` }
 }
 ```
 
@@ -106,7 +106,7 @@ dsh 同样的分法：`tools/result` 那一档的 JSDoc 写着 `Listener failure
 
 ```ts
 if (controller.signal.aborted) {
-  result = `error：工具 ${name} 超过了 ${timeoutMs}ms 的时间上限，已被中止。\n[中止前拿到的输出]\n${result}`
+  result = `错误：工具 ${name} 超过了 ${timeoutMs}ms 的时间上限，已被中止。\n[中止前拿到的输出]\n${result}`
 }
 ```
 
@@ -209,9 +209,9 @@ finally { fused.dispose(); exec.signal = wrapperSignal }           // 用完还�
 ## 规矩五：通用护栏是兜底，不是替代品
 
 ```ts
-after(context, result) {
+after(call, result) {
   if (result.length <= OUTPUT_BACKSTOP_CHARS) return result
-  return `${result.slice(0, OUTPUT_BACKSTOP_CHARS)}\n\n[${context.toolName} 的输出超过 ${OUTPUT_BACKSTOP_CHARS} ch，已由统一护栏截断]`
+  return `${result.slice(0, OUTPUT_BACKSTOP_CHARS)}\n\n[${call.toolName} 的输出超过 ${OUTPUT_BACKSTOP_CHARS} 字符，已由统一护栏截断]`
 }
 ```
 

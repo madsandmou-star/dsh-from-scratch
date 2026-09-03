@@ -2,6 +2,8 @@
 
 > 本课目标：认识后面每一课都会用到的那几个语法，以及两条会真的把你卡住的模块规则。
 >
+> **跑一下**：`npm run demo demos/00-env-basics/01-strip-types.mjs` 实测 Node 直接跑 `.ts` 的边界；`npm run demo demos/00-env-basics/02-strict-flags.mjs` 实测那两个严格开关拦住了什么。
+>
 > **声明**：这不是完整的 TypeScript 教程。后面用到的新语法会随用随讲——这是本课程的规矩：用到再讲。
 
 ## 类型只在编译期存在

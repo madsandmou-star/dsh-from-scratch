@@ -210,7 +210,7 @@ export class PromptRegistry {
    */
   replace(section: PromptSection): () => void {
     const previous = this.sections.get(section.name)
-    if (previous === undefined) throw new Error(`没有名为 ${section.name} 的段落可替换（要新增请用 注册）`)
+    if (previous === undefined) throw new Error(`没有名为 ${section.name} 的段落可替换（要新增请用 register()）`)
     this.sections.set(section.name, section)
     return () => { this.sections.set(section.name, previous) }
   }

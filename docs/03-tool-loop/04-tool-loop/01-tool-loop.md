@@ -1,6 +1,8 @@
 # 3.4 tool loop：agent 的本质
 
 > 本课目标：把工具结果喂回模型再问一轮，直到它给出最终回答。1.4 定义的 turn / step 在这里第一次真正兑现。
+>
+> **跑一下**：`npm run demo demos/03-tool-loop/04-max-steps.mjs` —— 模型陷在 a↔b 的环里，`MAX_STEPS` 是这个 turn 唯一的出口。
 
 ## 循环长什么样
 

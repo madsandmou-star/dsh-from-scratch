@@ -1,6 +1,8 @@
 # 3.2 流式下把工具调用拼起来
 
 > 本课目标：还 2.4 欠下的那笔债——`arguments` 是分块到达的 JSON 文本，要按 `index` 攒起来。
+>
+> **跑一下**：`npm run demo demos/03-tool-loop/02-accumulate.mjs` —— 两个调用交错、参数被切在 JSON 中间，看 `index` 怎么把它们归位。
 
 ## 真实的流式工具调用长什么样
 

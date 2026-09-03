@@ -60,7 +60,7 @@ variable cwd    ──┼─→ 组装时一次性全部求值 ──→ 逐段�
 
 ```ts
 variable(name: string, provide: () => string | undefined): () => void {
-  if (!VARIABLE_NAME.test(name)) throw new Error(`变量名不合法：${name}`)
+  if (!VARIABLE_NAME.test(name)) throw new Error(`变量名不合法：${name}（要求匹配 ${String(VARIABLE_NAME)}）`)
   if (this.variables.has(name)) throw new Error(`变量重名：${name}`)
   this.variables.set(name, provide)
   return () => { this.variables.delete(name) }
@@ -91,10 +91,10 @@ function interpolate(owner: string, text: string, variables: Map<string, string 
       continue
     }
     const name = group[1] ?? ''
-    if (!VARIABLE_NAME.test(name)) throw new Error(`段落「${owner}」里的变量名不合法："{{${name}}}"`)
+    if (!VARIABLE_NAME.test(name)) throw new Error(`段落「${owner}」里的变量名不合法："{{${name}}}"（要求匹配 ${String(VARIABLE_NAME)}）`)
     if (!variables.has(name)) throw new Error(`段落「${owner}」引用了未注册的变量 "{{${name}}}"。已注册的变量：…`)
     const value = variables.get(name)
-    if (value === undefined) throw new Error(`variable "{{${name}}}" 这一次组装没有取到值（段落「${owner}」）`)
+    if (value === undefined) throw new Error(`变量 "{{${name}}}" 这一次组装没有取到值（段落「${owner}」）`)
     // 拼到 result 上，而不是回到文本里继续扫——替换进去的值不再被当成模板。
     result += text.slice(consumed, open) + value
     consumed = open + group[0].length

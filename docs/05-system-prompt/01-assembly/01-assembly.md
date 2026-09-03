@@ -170,7 +170,7 @@ if (this.sections.has(section.name)) throw new Error(`system prompt 段落重名
 
 ```ts
 text: () => (enabled
-  ? '当前是**readOnlyGuard**：write / edit / bash 都不可用，调用它们会被直接拒绝。'
+  ? '当前是**只读模式**：write / edit / bash 都不可用，调用它们会被直接拒绝。'
     + '你可以用 read / glob / grep 查看代码，并把建议的改法说出来，但不要试图自己动手。'
   : ''),
 ```
@@ -244,7 +244,7 @@ DSH_SHOW_PROMPT=1 npm run dev
 `demos/05-system-prompt/02-model-sees-it.mjs` 把模型真正收到的 system prompt 打出来。只读模式打开时，最后多了一段：
 
 ```
-当前是**readOnlyGuard**：write / edit / bash 都不可用，调用它们会被直接拒绝。
+当前是**只读模式**：write / edit / bash 都不可用，调用它们会被直接拒绝。
 你可以用 read / glob / grep 查看代码，并把建议的改法说出来，但不要试图自己动手。
 ```
 

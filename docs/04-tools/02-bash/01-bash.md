@@ -66,9 +66,9 @@ class TailBuffer {
 `grep` 没匹配到就退 1，`test` 判假也退 1，`diff` 发现差异退 1。**这些都不是故障，是结果。** 所以退出码作为一行标记附在输出末尾，而不是抛异常：
 
 ```ts
-if (result.timedOut) markers.push(`[timedOut：跑满 ${timeoutMs}ms 后被杀掉]`)
-if (result.signal !== null) markers.push(`[被信号杀掉：${result.signal}]`)
-else if (result.code !== 0) markers.push(`[code：${result.code}]`)
+if (result.timedOut) markers.push(`[超时：跑满 ${timeoutMs}ms 后被杀掉]`)
+if (result.killedBy !== null) markers.push(`[被信号杀掉：${result.killedBy}]`)
+else if (result.code !== 0) markers.push(`[退出码：${result.code}]`)
 ```
 
 这是 3.3 那条"执行失败要变成文本"的延伸：**该怎么反应由模型决定，工具只负责如实报告。**
@@ -106,7 +106,7 @@ ls: cannot access '/nonexistent-dir': No such file or directory
 ```ts
 const rawTimeout = args['timeout_ms']
 if (rawTimeout !== undefined && (typeof rawTimeout !== 'number' || !Number.isFinite(rawTimeout) || rawTimeout <= 0)) {
-  throw new Error(`args timeout_ms 必须是正数，实际收到：${JSON.stringify(rawTimeout)}`)
+  throw new Error(`参数 timeout_ms 必须是正数，实际收到：${JSON.stringify(rawTimeout)}`)
 }
 const timeoutMs = rawTimeout ?? DEFAULT_TIMEOUT_MS
 ```
@@ -146,9 +146,9 @@ export interface Tool {
 
 ```ts
 summarize(result) {
-  const line = result.split('\n').filter(line => line.trim() !== '' && line !== '[stderr]')
-  const lastTwo = line.slice(-2).join(' / ')
-  return line.length > 2 ? `（共 ${line.length} line）… ${lastTwo}` : lastTwo
+  const lines = result.split('\n').filter(line => line.trim() !== '' && line !== '[stderr]')
+  const lastTwo = lines.slice(-2).join(' / ')
+  return lines.length > 2 ? `（共 ${lines.length} 行）… ${lastTwo}` : lastTwo
 }
 ```
 

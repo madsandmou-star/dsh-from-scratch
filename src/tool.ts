@@ -359,7 +359,7 @@ export const bashTool: Tool = {
 
     const workdir = args['workdir'] === undefined ? CWD : resolveInsideCwd(requireString(args, 'workdir'))
 
-    // 默认值在这里显式取，而不是藏在 跑命令() 里的 `?? 默认超时毫秒`。
+    // 默认值在这里显式取，而不是藏在 runCommand() 里的 `?? DEFAULT_TIMEOUT_MS`。
     // dsh 把这条做成了一条明规矩：resolve(request) → spec 是一步独立的解析，
     // 调用方能看见最终生效的值是什么（`ShellExecRequest` → `ShellExecSpec`）。
     const rawTimeout = args['timeout_ms']
@@ -373,9 +373,9 @@ export const bashTool: Tool = {
   summarize(result) {
     // 命令的结论在末尾：报错的最后一句、以及我们自己附的退出状态标记。
     // `[stderr]` 是分节标题不是内容，滤掉。
-    const line = result.split('\n').filter(line => line.trim() !== '' && line !== '[stderr]')
-    const lastTwo = line.slice(-2).join(' / ')
-    return line.length > 2 ? `（共 ${line.length} 行）… ${lastTwo}` : lastTwo
+    const lines = result.split('\n').filter(line => line.trim() !== '' && line !== '[stderr]')
+    const lastTwo = lines.slice(-2).join(' / ')
+    return lines.length > 2 ? `（共 ${lines.length} 行）… ${lastTwo}` : lastTwo
   },
 }
 

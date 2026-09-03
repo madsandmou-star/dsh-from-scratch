@@ -58,7 +58,7 @@ complete（只留这一段，其余照样求值但不进 prompt）：
 ```ts
 replace(section: PromptSection): () => void {
   const previous = this.sections.get(section.name)
-  if (previous === undefined) throw new Error(`没有名为 ${section.name} 的段落可替换（要新增请用 register）`)
+  if (previous === undefined) throw new Error(`没有名为 ${section.name} 的段落可替换（要新增请用 register()）`)
   this.sections.set(section.name, section)
   return () => { this.sections.set(section.name, previous) }   // 注销 = 把原来那段放回去
 }
@@ -73,7 +73,7 @@ assemble(): string {
 
   // 两段都说"我是全部"是配置错误：没有任何规则能决定听谁的。
   const completeOnes = ordered.filter(section => section.complete === true)
-  if (completeOnes.length > 1) throw new Error(`同时有多段声明了"complete"：${completeOnes.map(section => section.name).join('、')}`)
+  if (completeOnes.length > 1) throw new Error(`同时有多段声明了"完整"：${completeOnes.map(section => section.name).join('、')}`)
 
   // 注意变量照样插值：`complete` 换掉的是"哪些段进 prompt"，不是"要不要处理模板"。
   const onlyOne = completeOnes[0]
@@ -195,7 +195,7 @@ dsh 的 JSDoc 是同一句话：
 
 ```
 === ④ 两段都说"我是全部" ===
-  ❌ 同时有多段声明了"complete"：deployment:persona、tools:guidance
+  ❌ 同时有多段声明了"完整"：deployment:persona、tools:guidance
 ```
 
 **没有任何规则能决定听谁的。** 按 order 取第一个？那是随便挑一个然后假装有道理。按注册顺序？那让结果取决于插件加载顺序，是这门课一路在避免的那种脆弱。

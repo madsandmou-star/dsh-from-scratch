@@ -15,8 +15,8 @@ await mkdir(dirname(target), { recursive: true })
 await writeFile(target, content, 'utf8')
 
 return previousChars === undefined
-  ? `已创建 ${relPath}（${content.length} ch）`
-  : `已覆盖 ${relPath}（原 ${previousChars} ch → 现 ${content.length} ch）`
+  ? `已创建 ${displayPath}（${content.length} 字符）`
+  : `已覆盖 ${displayPath}（原 ${previousChars} 字符 → 现 ${content.length} 字符）`
 ```
 
 三个细节，每个都有理由：
@@ -28,7 +28,7 @@ return previousChars === undefined
 ```ts
 const content = args['content']
 if (typeof content !== 'string') {
-  throw new Error(`args content 必须是字符串，实际收到：${JSON.stringify(content)}`)
+  throw new Error(`参数 content 必须是字符串，实际收到：${JSON.stringify(content)}`)
 }
 ```
 
@@ -58,12 +58,12 @@ if (typeof content !== 'string') {
 ```ts
 const offsets = findAllOffsets(content, old_string)
 if (offsets.length === 0) {
-  throw new Error(`old_string 在 ${relPath} 中没有找到。请先用 read 确认原文（注意空格、缩进和换行必须完全一致）。`)
+  throw new Error(`old_string 在 ${displayPath} 中没有找到。请先用 read 确认原文（注意空格、缩进和换行必须完全一致）。`)
 }
 if (offsets.length > 1) {
   const lineNumbers = offsets.map(offset => content.slice(0, offset).split('\n').length)
   throw new Error(
-    `old_string 在 ${relPath} 中出现了 ${offsets.length} 次（第 ${lineNumbers.join('、')} line），必须恰好一次。`
+    `old_string 在 ${displayPath} 中出现了 ${offsets.length} 次（第 ${lineNumbers.join('、')} 行），必须恰好一次。`
     + '请在 old_string 里多带上前后几行上下文，让它变得唯一。',
   )
 }

@@ -66,7 +66,7 @@ export function startFakeServer(script, finalAnswer, onToolResult, onSystemPromp
  * @param {{name: string, args: object}[]} 选项.剧本 - 模型依次要求调用的工具。
  * @param {string} 选项.最终回答 - 剧本走完后模型说的话。
  * @param {string} 选项.输入 - 喂给 CLI 的那句用户输入。
- * @param {object} [选项.配置] - 额外的配置字段，合并进临时的 dsh-learn.json（例如 `{ 只读: true }`）。
+ * @param {object} [选项.配置] - 额外的配置字段，合并进临时的 dsh-learn.json（例如 `{ readOnly: true }`）。
  * @param {(内容: string) => void} [选项.看见] - 每收到一条 tool 结果就回调一次。
  * @param {(内容: string) => void} [选项.看见系统提示] - 回调一次模型收到的 system prompt。
  * @param {(消息们: object[]) => void} [选项.看见每次请求] - 每次请求回调一次，参数是完整的 messages。
@@ -121,6 +121,6 @@ export async function cleanup(dir) {
  * 一个永远不会响的取消信号。
  *
  * 直接调 `tool.execute()` 的演示要用它——4.4 之后 `execute` 的第二个参数是必填的。
- * 真实调用永远该走 `执行工具()`，由管线来发这个信号。
+ * 真实调用永远该走 `runTool()`，由管线来发这个信号。
  */
 export const NEVER_ABORTED = new AbortController().signal

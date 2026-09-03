@@ -1,6 +1,8 @@
 # 3.3 定义一个工具并执行它
 
 > 本课目标：写出 `Tool` 接口和第一个真工具，并把"模型给的参数是不可信输入"这条规矩落到代码里。
+>
+> **跑一下**：`npm run demo demos/03-tool-loop/03-arg-validation.mjs` —— 六种非法调用，六条能让模型自己改正的回复。
 
 ## Tool 是四样东西
 
@@ -37,16 +39,16 @@ export interface Tool {
 function requireString(args, field) {
   const value = args[field]
   if (typeof value !== 'string' || value === '') {
-    throw new Error(`args ${field} 必须是非空字符串，实际收到：${JSON.stringify(value)}`)
+    throw new Error(`参数 ${field} 必须是非空字符串，实际收到：${JSON.stringify(value)}`)
   }
   return value
 }
 
-function resolveInsideCwd(relPath) {
-  const absolute = resolve(CWD, relPath)
+function resolveInsideCwd(displayPath) {
+  const absolute = resolve(CWD, displayPath)
   const relativeToCwd = relative(CWD, absolute)
   if (relativeToCwd.startsWith('..') || isAbsolute(relativeToCwd)) {
-    throw new Error(`路径越界：${relPath} 解析后落在工作目录之外`)
+    throw new Error(`路径越界：${displayPath} 解析后落在工作目录之外`)
   }
   return absolute
 }
@@ -90,13 +92,13 @@ function resolveInsideCwd(relPath) {
 `index.ts` 里的 `runTool()` 把三类失败都转成返回值：
 
 ```ts
-if (tool === undefined) return `error：不存在名为 ${name} 的工具。可用工具：${...}`
+if (tool === undefined) return `错误：不存在名为 ${name} 的工具。可用工具：${...}`
 
 try { args = JSON.parse(rawArguments) }
-catch (error) { return `error：参数不是合法的 JSON（${...}）。收到的原文：${rawArguments}` }
+catch (error) { return `错误：参数不是合法的 JSON（${...}）。收到的原文：${rawArguments}` }
 
 try { return await tool.execute(args) }
-catch (error) { return `error：${error.message}` }
+catch (error) { return `错误：${error.message}` }
 ```
 
 **为什么不抛异常？** 因为这些失败的正确读者是**模型**，不是我们的错误处理代码。把"路径越界"作为 tool 结果喂回去，模型会换一个路径重试；抛异常打断整个 agent，用户看到的是一个崩掉的会话。

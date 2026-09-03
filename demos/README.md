@@ -18,6 +18,36 @@ npm run demo demos/04-tools/01-write-edit.mjs
 - 需要跑完整会话的演示走 `harness.mjs` 的 `runSession()`：它起一个假模型服务器、写一份临时配置、用临时目录当工作目录把 `src/index.ts` 跑起来。
 - 演示脚本是 `.mjs` 而不是 `.ts`，这样它们既能被 `tsx` 跑，也能直接被 `node` 跑（除非要 import `src/*.ts`）。
 
+## 阶段 0：环境
+
+| 脚本 | 对应课 | 看什么 |
+|---|---|---|
+| `00-env-basics/01-strip-types.mjs` | 0.1 | Node 直接跑 `.ts` 的边界：`enum` / `namespace` 为什么擦不掉 |
+| `00-env-basics/02-strict-flags.mjs` | 0.2 | 同一段代码，开与不开 `noUncheckedIndexedAccess` / `exactOptionalPropertyTypes` 的差别 |
+
+## 阶段 1：最小 agent
+
+| 脚本 | 对应课 | 看什么 |
+|---|---|---|
+| `01-minimal-agent/01-config-errors.mjs` | 1.1 | 三种配置缺失，三条能照做的提示；密钥只活在环境变量里 |
+| `01-minimal-agent/02-history-grows.mjs` | 1.4 | 每轮都把整个历史重发一遍，字节数怎么涨 |
+
+## 阶段 2：流式
+
+| 脚本 | 对应课 | 看什么 |
+|---|---|---|
+| `02-streaming/01-sse-framing.mjs` | 2.2 | 五种切法（含切开一个中文字、每字节一块）产出完全一样；末尾残片被丢掉 |
+| `02-streaming/02-broken-stream.mjs` | 2.3 | 连接被掐 vs 干净关闭但缺 `[DONE]`——后者最阴 |
+
+## 阶段 3：工具循环
+
+| 脚本 | 对应课 | 看什么 |
+|---|---|---|
+| `03-tool-loop/01-tools-in-request.mjs` | 3.1 | 请求里 `tools` 字段的完整样子——模型读到的就是这段 JSON |
+| `03-tool-loop/02-accumulate.mjs` | 3.2 | 两个调用交错、参数被切在 JSON 中间，靠 `index` 归位 |
+| `03-tool-loop/03-arg-validation.mjs` | 3.3 | 六种非法调用，六条能改正的回复，一次异常都没抛 |
+| `03-tool-loop/04-max-steps.mjs` | 3.4 | 模型陷在 a↔b 的环里，`MAX_STEPS` 是唯一出口 |
+
 ## 阶段 4：工具集
 
 | 脚本 | 对应课 | 看什么 |

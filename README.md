@@ -111,8 +111,9 @@ export DEEPSEEK_API_KEY=sk-...
 # 4. 阶段 1 的多轮对话 agent
 npm run dev          # 等价于 node --import tsx src/index.ts
 
-# 5. 跑一个演示（不需要 key：用的是假模型服务器）
-npm run demo demos/04-tools/04-red-green.mjs
+# 5. 跑演示（27 个，全都不需要 key：用的是假模型服务器）
+npm run demo demos/02-streaming/01-sse-framing.mjs   # 分帧器抗五种切法
+npm run demo demos/04-tools/04-red-green.mjs         # agent 自己修好一个测试
 
 # 6. 自检：讲义里的链接和源码引用有没有失效
 npm run check
