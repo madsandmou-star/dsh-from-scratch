@@ -14,15 +14,16 @@ const COURSE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 /**
  * 起一个按剧本回答的假模型服务器。
- * @param {{name: string, args: object}[]} 剧本 - 依次要求调用的工具；用完后模型给最终回答。
- * @param {string} 最终回答 - 剧本走完后模型说的话。
- * @param {(内容: string) => void} [看见] - 每收到一条 tool 结果就回调一次。
- * @param {(内容: string) => void} [看见系统提示] - 第一次请求时回调一次，参数是模型收到的 system prompt。
- * @param {(消息们: object[]) => void} [看见每次请求] - 每收到一次请求回调一次，参数是完整的 messages 数组。
- * @returns {Promise<{端口: number, 关掉: () => Promise<void>}>}
+ * @param {{name: string, args: object}[]} script - 依次要求调用的工具；用完后模型给最终回答。
+ * @param {string} finalAnswer - 剧本走完后模型说的话。
+ * @param {(content: string) => void} [onToolResult] - 每收到一条 tool 结果就回调一次。
+ * @param {(content: string) => void} [onSystemPrompt] - 第一次请求时回调一次，参数是模型收到的 system prompt。
+ * @param {(messages: object[]) => void} [onRequest] - 每收到一次请求回调一次，参数是完整的 messages 数组。
+ * @returns {Promise<{port: number, close: () => Promise<void>}>}
  */
 export function startFakeServer(script, finalAnswer, onToolResult, onSystemPrompt, onRequest) {
   let reportedSystemPrompt = false
+  let seenToolResults = 0
   let round = 0
   const server = createServer(async (req, res) => {
     let body = ''
@@ -33,8 +34,15 @@ export function startFakeServer(script, finalAnswer, onToolResult, onSystemPromp
       onSystemPrompt(messages[0].content)
     }
     if (onRequest !== undefined) onRequest(messages)
-    const last = messages.at(-1)
-    if (last.role === 'tool' && onToolResult !== undefined) onToolResult(last.content)
+    // 找**最后一条 tool 消息**，而不是只看数组末尾：阶段 5.3 之后，
+    // 每个 step 之前还会追加一条运行时上下文快照，它排在工具结果后面。
+    let reported = 0
+    for (const m of messages) if (m.role === 'tool') reported++
+    if (reported > seenToolResults && onToolResult !== undefined) {
+      const toolMessages = messages.filter(m => m.role === 'tool')
+      for (const m of toolMessages.slice(seenToolResults)) onToolResult(m.content)
+      seenToolResults = reported
+    }
 
     res.writeHead(200, { 'content-type': 'text/event-stream' })
     const frame = delta => res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: delta, finish_reason: null }] })}\n\n`)
@@ -61,15 +69,15 @@ export function startFakeServer(script, finalAnswer, onToolResult, onSystemPromp
 
 /**
  * 在一个临时工作目录里跑一次完整会话，输出直接打到当前终端。
- * @param {object} 选项
- * @param {Record<string, string>} [选项.文件] - 先在临时目录里铺好的文件，键是相对路径。
- * @param {{name: string, args: object}[]} 选项.剧本 - 模型依次要求调用的工具。
- * @param {string} 选项.最终回答 - 剧本走完后模型说的话。
- * @param {string} 选项.输入 - 喂给 CLI 的那句用户输入。
- * @param {object} [选项.配置] - 额外的配置字段，合并进临时的 dsh-learn.json（例如 `{ readOnly: true }`）。
- * @param {(内容: string) => void} [选项.看见] - 每收到一条 tool 结果就回调一次。
- * @param {(内容: string) => void} [选项.看见系统提示] - 回调一次模型收到的 system prompt。
- * @param {(消息们: object[]) => void} [选项.看见每次请求] - 每次请求回调一次，参数是完整的 messages。
+ * @param {object} options
+ * @param {Record<string, string>} [options.files] - 先在临时目录里铺好的文件，键是相对路径。
+ * @param {{name: string, args: object}[]} options.script - 模型依次要求调用的工具。
+ * @param {string} options.finalAnswer - 剧本走完后模型说的话。
+ * @param {string} options.input - 喂给 CLI 的那句用户输入。
+ * @param {object} [options.config] - 额外的配置字段，合并进临时的 dsh-learn.json（例如 `{ readOnly: true }`）。
+ * @param {(content: string) => void} [options.onToolResult] - 每收到一条 tool 结果就回调一次。
+ * @param {(content: string) => void} [options.onSystemPrompt] - 回调一次模型收到的 system prompt。
+ * @param {(messages: object[]) => void} [options.onRequest] - 每次请求回调一次，参数是完整的 messages。
  * @returns {Promise<string>} 临时工作目录路径（调用方可以再检查文件内容）。
  */
 export async function runSession({ files = {}, script, finalAnswer, input, onToolResult, onSystemPrompt, onRequest, config = {} }) {
@@ -111,7 +119,7 @@ export async function runSession({ files = {}, script, finalAnswer, input, onToo
 
 /**
  * 删掉 {@link runSession} 建出来的临时目录。
- * @param {string} 目录 - 临时工作目录。
+ * @param {string} dir - 临时工作目录。
  */
 export async function cleanup(dir) {
   await rm(dir, { recursive: true, force: true })

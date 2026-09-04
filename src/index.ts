@@ -11,9 +11,10 @@ import { loadConfig } from './config.ts'
 import { chatStream } from './llm.ts'
 import { accounting, outputBackstop, readOnlyGuard, readOnlyNotice } from './guard.ts'
 import { runTool } from './pipeline.ts'
+import { Session, deriveMessages, summarizeEvent } from './session.ts'
 import { PERSONA_SECTION, PERSONA_ORDER, PromptRegistry, CONTEXT_CLEARED, identitySection } from './system-prompt.ts'
 import { tools, toolGuidanceSection } from './tool.ts'
-import type { Message, ToolCall } from './types.ts'
+import type { ToolCall } from './types.ts'
 
 const config = loadConfig()
 
@@ -51,9 +52,11 @@ if (process.env['DSH_SHOW_PROMPT'] !== undefined) {
 // 模型本身是无状态的：它不记得上一次你说了什么。
 // 所谓"多轮对话"，就是每一轮都把**整个历史**重新发一遍。
 // 这也是为什么长对话会越来越贵、越来越慢——阶段 16 讲 compaction 时会回到这里。
-const messages: Message[] = [
-  { role: 'system', content: prompt.assemble() },
-]
+// 阶段 6.1：日志是权威，messages 是它的投影。
+// 到阶段 5 为止这里是一个 messages 数组，它同时是请求内容、显示内容和历史记录。
+// 现在换成一条只增不改的事件日志：发生什么就 append 一条，
+// 每次要发请求时再 deriveMessages() 投影一次。
+const session = new Session()
 
 // readline 接口。用 `for await (const line of rl)` 迭代输入行，而不是反复调 rl.question()：
 // question() 在 stdin 结束后就不能再用了（会抛 ERR_USE_AFTER_CLOSE），
@@ -78,35 +81,50 @@ const MAX_STEPS = 10
  * 阶段 1 的每个 turn 只有一个 step；工具循环让"一个 turn 多个 step"第一次真的发生。
  */
 /**
- * 上一次实际发出去的快照文本。
+ * 上一次发出去的快照文本，**从日志里查**而不是记在旁边。
  *
- * `undefined` 表示"从来没发过"。用一个变量记这件事是**最朴素的做法**，
- * 它的毛病在下面的回滚处理里会暴露；5.3 讲 dsh 为什么改成从会话日志里推导。
+ * 5.3 那版用一个变量记它，结果错误回滚会把日志里那条弹掉、变量却还记着，两边对不上。
+ * 现在日志只增不改，倒着找一条就是权威答案——那个变量连同它的 bug 一起消失了。
+ * @returns 最后一条快照的文本；从来没发过就是 undefined。
  */
-let lastSentSnapshot: string | undefined
+function lastSnapshotInLog(): string | undefined {
+  for (let i = session.events.length - 1; i >= 0; i--) {
+    const event = session.events[i]
+    if (event?.type === 'context/snapshot') return event.data.text
+  }
+  return undefined
+}
 
 /**
- * 如果这一轮的快照和上次发出去的不一样，就作为一条 user 消息追加进历史。
+ * 如果这一轮的快照和上次发出去的不一样，就往日志里追加一条。
  *
  * 一样就什么都不做——**每轮重发一份一模一样的快照，是在白烧 token**，
  * 而且会让模型以为"又有新情况了"。
  */
 function appendContextSnapshot(): void {
   const snapshot = prompt.assembleContext()
-  if (snapshot === (lastSentSnapshot ?? '')) return
   // 从"有"变成"没有"时要显式说一声。什么都不发的话，模型会继续拿旧快照当真。
   const toSend = snapshot === '' ? CONTEXT_CLEARED : snapshot
-  messages.push({ role: 'user', content: toSend })
-  lastSentSnapshot = snapshot
+  const previous = lastSnapshotInLog()
+  if (toSend === previous) return
+  if (snapshot === '' && previous === undefined) return   // 从来没有过上下文，不用宣布"没有了"
+  session.append('context/snapshot', { text: toSend })
 }
 
-async function runTurn(): Promise<void> {
+async function runTurn(turn: number, input: string): Promise<void> {
+  // turn/start 先落，用户那句话再落：日志的顺序就是发生的顺序，
+  // 一个 turn 里的所有事件都排在它的 turn/start 后面。阶段 12 靠这条边界回退。
+  session.append('turn/start', { turn })
+  session.append('user/message', { text: input })
   for (let step = 1; step <= MAX_STEPS; step++) {
     // 快照在**每个 step 之前**重算：一个 turn 可能跑十分钟，时间早就变了。
     appendContextSnapshot()
     process.stdout.write(`\n模型 > `)
     let text = ''
     let toolCalls: ToolCall[] = []
+
+    // 每一步都重新投影一次：日志变了，发出去的东西才跟着变。
+    const messages = deriveMessages(session.events, prompt.assemble())
 
     for await (const event of chatStream(messages, config)) {
       if (event.type === 'text') {
@@ -117,18 +135,11 @@ async function runTurn(): Promise<void> {
       toolCalls = event.calls
     }
 
-    // 把模型这一轮的产出记进历史。注意 content 可能是 null——模型只调工具不说话时就是这样，
-    // 而这条 assistant 消息**必须**进历史：下一轮请求里，每条 tool 结果都要能找到它对应的调用。
-    messages.push({
-      role: 'assistant',
-      content: text === '' ? null : text,
-      ...toolCalls.length === 0 ? {} : {
-        tool_calls: toolCalls.map(call => ({
-          id: call.id,
-          type: 'function' as const,
-          function: { name: call.name, arguments: call.arguments },
-        })),
-      },
+    // 把模型这一轮的产出记进日志。content 可能是 null——模型只调工具不说话时就是这样。
+    session.append('assistant/message', {
+      turn, step,
+      text: text === '' ? null : text,
+      ...toolCalls.length === 0 ? {} : { toolCalls },
     })
 
     // 模型没要求调工具 = 它给出了最终回答 = 这个 turn 结束了。
@@ -137,12 +148,14 @@ async function runTurn(): Promise<void> {
     // 执行这一轮的每个工具，结果作为 tool 消息喂回历史。
     for (const call of toolCalls) {
       console.log(`\n  [工具] ${call.name}(${call.arguments})`)
+      // 先记"开始了"，再记结果。两条分开，才分得清"从没开始"和"开始了但没结果"——
+      // 投影补齐时要靠这个区分说出不同的话。
+      session.append('tool/call', { callId: call.id, name: call.name, arguments: call.arguments })
       const result = await runTool(call.name, call.arguments, guards)
       // 摘要归工具自己管：通用的"取首行"对 bash 没用（首行可能是 `[stderr]`）。
       const oneLine = tools.find(t => t.name === call.name)?.summarize?.(result) ?? result.split('\n')[0] ?? ''
       console.log(`         → ${oneLine.slice(0, 90)}${oneLine.length > 90 ? ' …' : ''}`)
-      // tool_call_id 把结果和调用配对。少一条、或者 id 对不上，下一次请求就是非法的。
-      messages.push({ role: 'tool', tool_call_id: call.id, content: result })
+      session.append('tool/result', { callId: call.id, content: result })
     }
     // 带着工具结果再问一轮 —— 这就是 tool loop。
   }
@@ -150,34 +163,41 @@ async function runTurn(): Promise<void> {
   console.error(`\n[已达最大步数 ${MAX_STEPS}，停止本轮]`)
 }
 
+let turn = 0
 for await (const line of rl) {
   const input = line.trim()
   if (input === '/exit') break
   if (input === '') { process.stdout.write('\n你 > '); continue }
 
-  const rollbackTo = messages.length
-  messages.push({ role: 'user', content: input })
-
   try {
-    await runTurn()
+    await runTurn(++turn, input)
   } catch (error) {
-    // 一个 step 失败会让整个 turn 停下。历史里可能留下一条"要求调工具但没有结果"的
-    // assistant 消息——那是非法状态，下一轮请求会被供应商拒绝。
-    // 这里用最朴素的办法处理：把这个 turn 期间追加的消息全部回滚。
-    // 3.5 会讲 dsh 为什么不这么做，以及它的办法是什么。
-    console.error(`\n[本轮中断，已回滚] ${error instanceof Error ? error.message : String(error)}`)
-    while (messages.length > rollbackTo) messages.pop()
-    // 回滚把这轮追加的快照消息也弹掉了，但 上次发出的快照 这个变量还记着它。
-    // 不清掉的话，下一轮就不会重发——模型永远见不到那份上下文。
-    // **一个记在旁边的变量，会和真实历史对不上。** 5.3 讲 dsh 的解法。
-    lastSentSnapshot = undefined
+    // 中断了就是中断了——**日志不回滚**。1.4 那版在这里 pop 掉几条消息，
+    // 一次抹掉了请求内容、显示内容和历史记录三样东西。
+    // 现在日志照样记着"模型要求过这个调用"，而 deriveMessages() 会在投影时
+    // 给没有结果的调用补一条合成的结果，让发出去的 messages 重新合法。
+    console.error(`\n[本轮中断] ${error instanceof Error ? error.message : String(error)}`)
   }
   process.stdout.write('\n你 > ')
 }
 
 rl.close()
 
-// 想看清"到底发出去了什么"，在 chat() 调用前加一行：
-//   console.dir(messages, { depth: null })
-// 这是阶段 1 最有用的一个 debug 手法：agent 出问题时，
-// 十有八九不是模型笨，而是你以为发出去的东西和实际发出去的东西不一样。
+// 6.1 之后最有用的 debug 开关：把**日志**和**它的投影**并排打出来。
+//
+//   DSH_DUMP_LOG=1 npm run dev
+//
+// 两边对不上时，错的几乎总是投影规则，而不是日志——日志只增不改，
+// 它记的就是真的发生过的事；messages 是一个函数的输出，函数才会写错。
+// 具体到怎么读这两栏，见 docs/06-session/01-event-log/01-event-log.md。
+if (process.env['DSH_DUMP_LOG'] !== undefined) {
+  console.error(`\n[会话日志] ${session.events.length} 条 —— 发生了什么（权威）`)
+  for (const event of session.events) {
+    console.error(`  ${String(event.seq).padStart(3)}  ${event.type.padEnd(18)} ${summarizeEvent(event).slice(0, 80)}`)
+  }
+  const projected = deriveMessages(session.events, prompt.assemble())
+  console.error(`\n[投影出来的 messages] ${projected.length} 条 —— 发给模型什么`)
+  for (const message of projected) {
+    console.error(`       ${message.role.padEnd(18)} ${String(message.content ?? '(null)').replace(/\n/g, ' ⏎ ').slice(0, 80)}`)
+  }
+}

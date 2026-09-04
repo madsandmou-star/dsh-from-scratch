@@ -76,3 +76,10 @@ npm run demo demos/04-tools/01-write-edit.mjs
 | `05-system-prompt/05-runtime-context.mjs` | 5.3 | 一个 turn 三次请求里，快照的位置和自我取代 |
 | `05-system-prompt/06-why-not-system-prompt.mjs` | 5.3 | 时间放进 system prompt 会打断多长的缓存前缀；去重与清空 |
 | `05-system-prompt/07-complete-and-slots.mjs` | 5.4 | 具名槽位替换、`complete` 只留一段、两段冲突、最小 subagent |
+
+## 阶段 6：会话落盘
+
+| 脚本 | 对应课 | 看什么 |
+|---|---|---|
+| `06-session/01-log-vs-projection.mjs` | 6.1 | 一次真实会话的**日志**与它**投影出的 messages**，两栏并排 |
+| `06-session/02-dangling-repair.mjs` | 6.1 | 三种中断位置，三种补齐；投影会造出日志里没有的消息 |

@@ -63,7 +63,7 @@ dsh 有 200 多个包（分在 50 个包组里）。打开 `dsh/packages/core/ag
 | 3 | 工具循环（agent 的本质） |
 | 4 | 工具集与执行前后（超时、截断） |
 | 5 | system prompt 组装（环境信息 + AGENTS.md + 工具 schema） |
-| 6 | 会话落盘（JSONL，重启恢复） |
+| 6 | 会话落盘（事件日志 + 投影，JSONL 重启恢复） |
 
 ### 第二阶段 · 痛点驱动，演进成 dsh
 
@@ -74,7 +74,7 @@ dsh 有 200 多个包（分在 50 个包组里）。打开 `dsh/packages/core/ag
 | 9 | 卸载一个功能要手动收尾 | 可逆注册（effect） |
 | 10 | 想在工具执行前插一脚，只能改 loop | 类型化事件与 waterfall 管线 |
 | 11 | 换个部署要改代码 | 配置即组合（cordis.yml / profile / bundle / patch） |
-| 12 | 无法 revert、恢复、压缩、回放 | 事件溯源的 session log |
+| 12 | 日志有了，但不能 revert、压缩、分支 | surface 操作、投影缓存、压缩 |
 | 13 | loop 写死了，换不掉 | agent 服务与 loop 分离（turn / step / inbox） |
 | 14 | 换执行后端要改一堆消费者 | capability seam（Definition / Provider / Consumer） |
 | 15 | 工具能乱改文件，没人确认 | 权限、审批、命令、ask-user |
