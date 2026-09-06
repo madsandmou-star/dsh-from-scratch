@@ -283,10 +283,12 @@ src/types.ts       # 改：ToolCall、tool role
   - 5.3 那个"记在旁边的变量"随之消失：上次发了什么，从日志里查
   - debug 开关：`DSH_DUMP_LOG=1` 把日志和投影两栏并排打出来
 
-- **6.2 落盘：JSONL 与重启续聊**（未写）
-  - 为什么是一行一条 JSON，而不是一个大 JSON 数组
-  - 头一行是会话头；追加只需 `appendFile`，不用重写整个文件
-  - `--resume`：逐行读回，投影一次，接着聊
+- **6.2 [落盘：JSONL 与重启续聊](docs/06-session/02-persistence/01-persistence.md)** ✅
+  - 痛点：日志活在内存里，那条 `TOOL_OUTCOME_UNKNOWN` 的补齐规则永远用不上
+  - 为什么是一行一条 JSON：追加是 O(1) 不是 O(n²)；截断只坏最后一行
+  - 头一行是会话头：格式版本决定"读不懂就拒绝"，id 前缀是时间戳
+  - 落盘是一个**订阅者**，`Session` 不知道磁盘存在；`--resume` 读回来当种子
+  - `--resume` 的 id 是不可信输入：path traversal 要在拼路径的那一刻挡住
 
 - **6.3 什么时候真的写到了磁盘**（未写）
   - 痛点：`write()` 返回了不等于落盘了，`kill -9` 会丢

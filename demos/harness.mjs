@@ -75,13 +75,15 @@ export function startFakeServer(script, finalAnswer, onToolResult, onSystemPromp
  * @param {string} options.finalAnswer - 剧本走完后模型说的话。
  * @param {string} options.input - 喂给 CLI 的那句用户输入。
  * @param {object} [options.config] - 额外的配置字段，合并进临时的 dsh-learn.json（例如 `{ readOnly: true }`）。
+ * @param {string} [options.workdir] - 复用一个已有的临时目录（6.2 的 `--resume` 要在同一个目录里再跑一次）。
+ * @param {string[]} [options.extraArgs] - 追加给 CLI 的命令行参数，例如 `['--resume']`。
  * @param {(content: string) => void} [options.onToolResult] - 每收到一条 tool 结果就回调一次。
  * @param {(content: string) => void} [options.onSystemPrompt] - 回调一次模型收到的 system prompt。
  * @param {(messages: object[]) => void} [options.onRequest] - 每次请求回调一次，参数是完整的 messages。
  * @returns {Promise<string>} 临时工作目录路径（调用方可以再检查文件内容）。
  */
-export async function runSession({ files = {}, script, finalAnswer, input, onToolResult, onSystemPrompt, onRequest, config = {} }) {
-  const workdir = await mkdtemp(join(tmpdir(), 'dsh-demo-'))
+export async function runSession({ files = {}, script, finalAnswer, input, onToolResult, onSystemPrompt, onRequest, config = {}, workdir: reuse, extraArgs = [] }) {
+  const workdir = reuse ?? await mkdtemp(join(tmpdir(), 'dsh-demo-'))
   for (const [relPath, content] of Object.entries(files)) {
     await mkdir(dirname(join(workdir, relPath)), { recursive: true })
     await writeFile(join(workdir, relPath), content, 'utf8')
@@ -101,7 +103,7 @@ export async function runSession({ files = {}, script, finalAnswer, input, onToo
   await new Promise((resolve, reject) => {
     const child = spawn(
       process.execPath,
-      ['--import', join(COURSE_ROOT, 'node_modules/tsx/dist/loader.mjs'), join(COURSE_ROOT, 'src/index.ts')],
+      ['--import', join(COURSE_ROOT, 'node_modules/tsx/dist/loader.mjs'), join(COURSE_ROOT, 'src/index.ts'), ...extraArgs],
       {
         cwd: workdir,
         stdio: ['pipe', 'inherit', 'inherit'],

@@ -62,8 +62,16 @@ export type SessionListener = (event: SessionEvent) => void
  * 都是因为历史不会在你背后变。
  */
 export class Session {
-  private readonly log: SessionEvent[] = []
+  private readonly log: SessionEvent[]
   private readonly listeners = new Set<SessionListener>()
+
+  /**
+   * @param seed - 从磁盘读回来的既有事件（6.2 的 `--resume`）。它们**不会**触发订阅者：
+   *   重放已经发生过的事，不该再写一遍磁盘、也不该再通知任何人。
+   */
+  constructor(seed: readonly SessionEvent[] = []) {
+    this.log = [...seed]
+  }
 
   /** 已经发生的全部事情，按发生顺序。调用方只读。 */
   get events(): readonly SessionEvent[] {

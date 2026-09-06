@@ -83,3 +83,5 @@ npm run demo demos/04-tools/01-write-edit.mjs
 |---|---|---|
 | `06-session/01-log-vs-projection.mjs` | 6.1 | 一次真实会话的**日志**与它**投影出的 messages**，两栏并排 |
 | `06-session/02-dangling-repair.mjs` | 6.1 | 三种中断位置，三种补齐；投影会造出日志里没有的消息 |
+| `06-session/03-jsonl-and-resume.mjs` | 6.2 | 磁盘上的 JSONL 长什么样；`--resume` 续聊是往同一个文件追加 |
+| `06-session/04-why-jsonl.mjs` | 6.2 | 数组 vs JSONL：写入量差 998 倍；截断后各能救回几条 |

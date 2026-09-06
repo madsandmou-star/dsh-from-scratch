@@ -7,11 +7,13 @@
 // 退出：输入 /exit，或按 Ctrl-C。
 
 import { createInterface } from 'node:readline/promises'
+import { join } from 'node:path'
 import { loadConfig } from './config.ts'
 import { chatStream } from './llm.ts'
 import { accounting, outputBackstop, readOnlyGuard, readOnlyNotice } from './guard.ts'
 import { runTool } from './pipeline.ts'
 import { Session, deriveMessages, summarizeEvent } from './session.ts'
+import { SESSION_FORMAT_VERSION, attachJsonlPersistence, listSessions, loadSession, newSessionId, sessionLogPath } from './persistence.ts'
 import { PERSONA_SECTION, PERSONA_ORDER, PromptRegistry, CONTEXT_CLEARED, identitySection } from './system-prompt.ts'
 import { tools, toolGuidanceSection } from './tool.ts'
 import type { ToolCall } from './types.ts'
@@ -56,7 +58,49 @@ if (process.env['DSH_SHOW_PROMPT'] !== undefined) {
 // 到阶段 5 为止这里是一个 messages 数组，它同时是请求内容、显示内容和历史记录。
 // 现在换成一条只增不改的事件日志：发生什么就 append 一条，
 // 每次要发请求时再 deriveMessages() 投影一次。
-const session = new Session()
+//
+// 阶段 6.2：日志落到磁盘上，`--resume` 能接着上次聊。
+// 会话存在工作目录下的 .dsh-learn/sessions/ 里——**跟着项目走**，
+// 因为"上次我们在这个仓库里聊到哪"是和这个仓库绑定的事实。
+const SESSION_ROOT = join(process.cwd(), '.dsh-learn', 'sessions')
+
+/**
+ * 解析 `--resume [id]`。
+ *
+ * 不带 id 就是"续最近的那次"——这是最常用的形态：你刚才按了 Ctrl-C，现在想接着聊。
+ * @returns 要续的会话 id；不续就是 undefined。
+ * @throws `--resume` 指定了 id 但那个会话不存在，或者一次都没聊过。
+ */
+function resumeTarget(): string | undefined {
+  const index = process.argv.indexOf('--resume')
+  if (index === -1) return undefined
+  const explicit = process.argv[index + 1]
+  // 下一个参数以 `-` 开头的话，它是另一个选项，不是 id。
+  if (explicit !== undefined && !explicit.startsWith('-')) return explicit
+  const latest = listSessions(SESSION_ROOT)[0]
+  if (latest === undefined) throw new Error(`${SESSION_ROOT} 下还没有任何会话，没有可以续的。`)
+  return latest
+}
+
+const resumeId = resumeTarget()
+const sessionId = resumeId ?? newSessionId()
+const logPath = sessionLogPath(SESSION_ROOT, sessionId)
+
+// 续聊：先把日志读回来当种子，再挂上持久化——新事件接着往同一个文件后面写。
+// 重放不触发订阅者，所以读回来的事件不会被重新写一遍。
+const session = resumeId === undefined ? new Session() : new Session(loadSession(logPath).events)
+attachJsonlPersistence(session, logPath, resumeId === undefined
+  ? { type: 'session', version: SESSION_FORMAT_VERSION, id: sessionId, createdAt: Date.now(), cwd: process.cwd() }
+  : undefined)
+
+// 只在交互式终端里报会话 id：它是给人看的、方便复制的东西。
+// 管道运行（演示脚本、CI）不打，否则每次跑出来的文字都因为 id 不同而不一样，
+// 而这门课的每段产出都必须可复现。
+if (process.stdin.isTTY === true) {
+  console.error(resumeId === undefined
+    ? `[会话 ${sessionId}]  下次接着聊：npm run dev -- --resume`
+    : `[续上会话 ${sessionId}]  已读回 ${session.events.length} 条事件`)
+}
 
 // readline 接口。用 `for await (const line of rl)` 迭代输入行，而不是反复调 rl.question()：
 // question() 在 stdin 结束后就不能再用了（会抛 ERR_USE_AFTER_CLOSE），
@@ -163,7 +207,22 @@ async function runTurn(turn: number, input: string): Promise<void> {
   console.error(`\n[已达最大步数 ${MAX_STEPS}，停止本轮]`)
 }
 
-let turn = 0
+/**
+ * 从日志里查出上一个 turn 编号。
+ *
+ * 又一次"不记在旁边"：续聊时如果从 0 重新数，日志里就会出现两个 turn 1，
+ * 而阶段 12 要靠 turn 边界做回退。倒着找一条 turn/start 就是答案。
+ * @returns 最后一个 turn 的编号；一次都没聊过就是 0。
+ */
+function lastTurnInLog(): number {
+  for (let i = session.events.length - 1; i >= 0; i--) {
+    const event = session.events[i]
+    if (event?.type === 'turn/start') return event.data.turn
+  }
+  return 0
+}
+
+let turn = lastTurnInLog()
 for await (const line of rl) {
   const input = line.trim()
   if (input === '/exit') break
