@@ -85,3 +85,5 @@ npm run demo demos/04-tools/01-write-edit.mjs
 | `06-session/02-dangling-repair.mjs` | 6.1 | 三种中断位置，三种补齐；投影会造出日志里没有的消息 |
 | `06-session/03-jsonl-and-resume.mjs` | 6.2 | 磁盘上的 JSONL 长什么样；`--resume` 续聊是往同一个文件追加 |
 | `06-session/04-why-jsonl.mjs` | 6.2 | 数组 vs JSONL：写入量差 998 倍；截断后各能救回几条 |
+| `06-session/05-batching.mjs` | 6.3 | 每条同步写把事件循环卡住 108ms；攒批只卡 1ms |
+| `06-session/06-checkpoints.mjs` | 6.3 | 工具去数自己这次调用有没有落盘：有检查点 1，没有 0 |

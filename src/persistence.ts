@@ -7,7 +7,8 @@
 // 一句话是——追加一条事件只要 `appendFileSync(一行)`，不用把整个文件读回来、
 // 改一改、再整个写回去。
 
-import { appendFileSync, mkdirSync, readFileSync, existsSync, readdirSync } from 'node:fs'
+import { mkdirSync, readFileSync, existsSync, readdirSync } from 'node:fs'
+import { open } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type { Session, SessionEvent } from './session.ts'
 
@@ -81,23 +82,131 @@ function toLine(event: SessionEvent | SessionHeader): string {
 }
 
 /**
+ * 一批事件攒多久才写。
+ *
+ * 200ms 是"人感觉不到"和"批得够大"之间的折中：模型吐字的间隙远比这短，
+ * 所以一次模型回复期间产生的事件会被攒成一两批，而不是几十次系统调用。
+ * dsh 的默认值也是 200（`dsh/packages/session/session-persistence/src/coordinator.ts`
+ * 里的 `DEFAULT_WRITE_BATCH_MAX_DELAY_MS`），而且它是**可配置**的——
+ * 批多久是部署决定，不是代码常量。
+ */
+export const WRITE_BATCH_MAX_DELAY_MS = 200
+
+/**
+ * 把一批行追加到文件末尾，然后 **fsync**。
+ *
+ * `write()` 返回只说明数据交给了内核，还躺在 page cache 里。`kill -9` 不影响它
+ * （内核还活着），但**断电或内核崩溃就没了**。`handle.sync()` 才是那句
+ * "现在真的写到盘上了"。它很贵——所以我们只在检查点上花这笔钱。
+ * @param path - 日志文件路径。
+ * @param content - 已经拼好的若干行（每行自带结尾换行）。
+ */
+async function appendAndSync(path: string, content: string): Promise<void> {
+  const handle = await open(path, 'a')
+  try {
+    await handle.writeFile(content)
+    await handle.sync()
+  } finally {
+    await handle.close()
+  }
+}
+
+/**
+ * 一个会话的写入控制器：攒批、定时刷、按需刷。
+ *
+ * 它自己不知道"什么时候该刷"——那是调用方的语义判断（见 `src/index.ts` 的检查点）。
+ * 它只保证两件事：**写出去的顺序和 append 的顺序一致**，以及 {@link flush}
+ * 返回时，此刻之前 append 的事件都已经 fsync 过了。
+ */
+export class SessionWriter {
+  private pending: string[] = []
+  private timer: ReturnType<typeof setTimeout> | undefined
+  /** 上一次写入的 promise。新的一批排在它后面，保证不会两批同时写、写串行。 */
+  private tail: Promise<void> = Promise.resolve()
+
+  /** @param path - 日志文件路径。 */
+  constructor(private readonly path: string) {}
+
+  /**
+   * 把一行放进队列，并（如果还没有的话）起一个定时器。
+   * @param line - 已经序列化好的一行，自带结尾换行。
+   */
+  enqueue(line: string): void {
+    this.pending.push(line)
+    if (this.timer !== undefined) return
+    this.timer = setTimeout(() => {
+      // 定时刷没有调用方接错误。留在 pending 里，下一次 flush() 会重试；
+      // 同时立刻报出来——**悄悄丢事件是这套设计最不能接受的失败**。
+      void this.flush().catch(error => {
+        console.error(`[会话日志写入失败，将在下一个检查点重试] ${error instanceof Error ? error.message : String(error)}`)
+      })
+    }, WRITE_BATCH_MAX_DELAY_MS)
+    // 不让这个定时器拖住进程退出：该刷的时候我们会显式刷。
+    this.timer.unref?.()
+  }
+
+  /**
+   * 把队列里的全部事件写下去并 fsync。
+   *
+   * 队列空时也要等 {@link tail}——上一批可能还在写，而调用方要的是
+   * "此刻之前的一切都已落盘"，不是"我这一批已落盘"。
+   * @returns 全部落盘后 resolve；写失败时 reject，那一批留在队列里等重试。
+   */
+  flush(): Promise<void> {
+    if (this.timer !== undefined) {
+      clearTimeout(this.timer)
+      this.timer = undefined
+    }
+    const batch = this.pending
+    this.pending = []
+    const done = this.tail.then(async () => {
+      if (batch.length === 0) return
+      try {
+        await appendAndSync(this.path, batch.join(''))
+      } catch (error) {
+        // 写了一半也算失败：把这批放回队首，让下一次 flush 整批重写。
+        // 顺序不能乱，所以是 unshift 不是 push。
+        this.pending.unshift(...batch)
+        throw error
+      }
+    })
+    // tail 只用来排队。让它吞掉失败，否则一次写失败会让后面每一次 flush 都失败。
+    this.tail = done.catch(() => {})
+    return done
+  }
+}
+
+/** 一个挂上了持久化的会话。 */
+export interface SessionPersistence {
+  /** 把此刻之前的所有事件写下去并 fsync。检查点调它。 */
+  flush(): Promise<void>
+  /** 停止持久化，最后刷一次。 */
+  close(): Promise<void>
+}
+
+/**
  * 让一个会话开始往磁盘上写。
  *
  * 这是 6.1 那个 `on()` 的第一个真实用户：**落盘是一个订阅者**，
  * 而不是 `append()` 里的一段代码。`Session` 因此完全不知道磁盘的存在——
  * 阶段 12 换成 SQLite 时，`session.ts` 一个字都不用改。
+ *
+ * 订阅者只做 {@link SessionWriter.enqueue}（同步、极快），真正的写在批处理里。
+ * `append()` 因此不会被磁盘拖慢——6.3 之前它每条都同步写，会卡住事件循环。
  * @param session - 要持久化的会话。
  * @param path - 日志文件路径。
  * @param header - 新会话的头；续聊时传 undefined（文件里已经有头了）。
- * @returns 停止持久化的函数。
+ * @returns 刷盘与关闭的手柄。
  */
-export function attachJsonlPersistence(session: Session, path: string, header?: SessionHeader): () => void {
+export function attachJsonlPersistence(session: Session, path: string, header?: SessionHeader): SessionPersistence {
   mkdirSync(dirname(path), { recursive: true })
-  if (header !== undefined) appendFileSync(path, toLine(header), 'utf8')
-  // 同步写：一条事件一次系统调用。它慢，而且会卡住事件循环——
-  // 但它保证了**顺序**和"函数返回时已经交给内核了"。6.3 会量出它有多慢，
-  // 并给出批量写的做法，以及为什么"交给内核"还不等于"落到盘上"。
-  return session.on(event => { appendFileSync(path, toLine(event), 'utf8') })
+  const writer = new SessionWriter(path)
+  if (header !== undefined) writer.enqueue(toLine(header))
+  const unsubscribe = session.on(event => { writer.enqueue(toLine(event)) })
+  return {
+    flush: () => writer.flush(),
+    close: async () => { unsubscribe(); await writer.flush() },
+  }
 }
 
 /** 从磁盘读回来的一次会话。 */

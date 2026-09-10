@@ -89,7 +89,7 @@ const logPath = sessionLogPath(SESSION_ROOT, sessionId)
 // 续聊：先把日志读回来当种子，再挂上持久化——新事件接着往同一个文件后面写。
 // 重放不触发订阅者，所以读回来的事件不会被重新写一遍。
 const session = resumeId === undefined ? new Session() : new Session(loadSession(logPath).events)
-attachJsonlPersistence(session, logPath, resumeId === undefined
+const persistence = attachJsonlPersistence(session, logPath, resumeId === undefined
   ? { type: 'session', version: SESSION_FORMAT_VERSION, id: sessionId, createdAt: Date.now(), cwd: process.cwd() }
   : undefined)
 
@@ -155,6 +155,19 @@ function appendContextSnapshot(): void {
   session.append('context/snapshot', { text: toSend })
 }
 
+/**
+ * 一个**语义检查点**：这里之前的事件必须真的在盘上，才能往下走。
+ *
+ * 不是所有事件都值得等一次 fsync——那太贵。值得的只有两种时刻：
+ * 发请求之前，和做不可逆的事（跑工具）之前。其余时间靠 200ms 的批处理兜底。
+ * @throws 写盘失败时抛出，调用方因此不会执行下一步（fail-closed）。
+ */
+async function checkpoint(): Promise<void> {
+  // 只为演示存在的开关：关掉检查点，好让 06-checkpoints.mjs 对照出差别。
+  if (process.env['DSH_NO_CHECKPOINT'] !== undefined) return
+  await persistence.flush()
+}
+
 async function runTurn(turn: number, input: string): Promise<void> {
   // turn/start 先落，用户那句话再落：日志的顺序就是发生的顺序，
   // 一个 turn 里的所有事件都排在它的 turn/start 后面。阶段 12 靠这条边界回退。
@@ -163,6 +176,12 @@ async function runTurn(turn: number, input: string): Promise<void> {
   for (let step = 1; step <= MAX_STEPS; step++) {
     // 快照在**每个 step 之前**重算：一个 turn 可能跑十分钟，时间早就变了。
     appendContextSnapshot()
+
+    // 检查点①：发请求之前，把这次请求依据的整段日志刷到盘上（6.3）。
+    // 理由不是"怕丢"，是**因果顺序**：模型的回答是这段历史的后果，
+    // 后果不能比原因先落盘。刷失败就不发——fail-closed，异常向上抛。
+    await checkpoint()
+
     process.stdout.write(`\n模型 > `)
     let text = ''
     let toolCalls: ToolCall[] = []
@@ -195,6 +214,11 @@ async function runTurn(turn: number, input: string): Promise<void> {
       // 先记"开始了"，再记结果。两条分开，才分得清"从没开始"和"开始了但没结果"——
       // 投影补齐时要靠这个区分说出不同的话。
       session.append('tool/call', { callId: call.id, name: call.name, arguments: call.arguments })
+      // 检查点②：跑工具之前，把这条 tool/call 刷到盘上（6.3）。
+      // 这是 6.1 那条补齐规则真正生效的地方：只有"我要开始跑了"先落盘，
+      // 崩溃之后才分得清 TOOL_OUTCOME_UNKNOWN（可能已经改了磁盘）
+      // 和 TOOL_NOT_STARTED（没跑，重试安全）。刷失败就不跑这个工具。
+      await checkpoint()
       const result = await runTool(call.name, call.arguments, guards)
       // 摘要归工具自己管：通用的"取首行"对 bash 没用（首行可能是 `[stderr]`）。
       const oneLine = tools.find(t => t.name === call.name)?.summarize?.(result) ?? result.split('\n')[0] ?? ''
@@ -241,6 +265,10 @@ for await (const line of rl) {
 }
 
 rl.close()
+
+// 退出前最后刷一次：200ms 的批处理里可能还压着最后几条事件。
+// close() 同时取消订阅——之后再 append 不会再写盘，这一点在测试里很重要。
+await persistence.close()
 
 // 6.1 之后最有用的 debug 开关：把**日志**和**它的投影**并排打出来。
 //

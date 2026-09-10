@@ -290,10 +290,13 @@ src/types.ts       # 改：ToolCall、tool role
   - 落盘是一个**订阅者**，`Session` 不知道磁盘存在；`--resume` 读回来当种子
   - `--resume` 的 id 是不可信输入：path traversal 要在拼路径的那一刻挡住
 
-- **6.3 什么时候真的写到了磁盘**（未写）
-  - 痛点：`write()` 返回了不等于落盘了，`kill -9` 会丢
-  - 写入批处理 vs 语义检查点：不可逆动作之前必须先落盘
-  - 对照 dsh 的 `DEFAULT_WRITE_BATCH_MAX_DELAY_MS` 与 checkpoint policy
+- **6.3 [什么时候真的写到了磁盘](docs/06-session/03-durability/01-durability.md)** ✅
+  - 痛点一：每条一次同步写，把事件循环整段占住（量得出来：108ms）
+  - 痛点二：`write()` 返回只是交给了内核，断电就没了；`fsync` 才是真的落盘
+  - 写入批处理（200ms）管性能，语义检查点管正确性——两个机制两件事
+  - 检查点只有两处：发请求之前（因果顺序）、跑工具之前（`tool/call` 必须先为真）
+  - 6.1 那条 `TOOL_OUTCOME_UNKNOWN` 到这里才真的成立：**没落盘的事件等于没发生过**
+  - 对照 dsh 的 `DEFAULT_WRITE_BATCH_MAX_DELAY_MS` 与 `session-checkpoint-policy`
 
 - **6.4 坏掉的日志怎么读回来**（未写）
   - 进程被杀在写一半：最后一行是残缺 JSON
