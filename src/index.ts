@@ -13,9 +13,10 @@ import { chatStream } from './llm.ts'
 import { accounting, outputBackstop, readOnlyGuard, readOnlyNotice } from './guard.ts'
 import { runTool } from './pipeline.ts'
 import { Session, deriveMessages, summarizeEvent } from './session.ts'
-import { SESSION_FORMAT_VERSION, attachJsonlPersistence, listSessions, loadSession, newSessionId, sessionLogPath } from './persistence.ts'
+import { SESSION_FORMAT_VERSION, attachJsonlPersistence, listSessions, loadSession, newSessionId, repairLog, sessionLogPath } from './persistence.ts'
 import { PERSONA_SECTION, PERSONA_ORDER, PromptRegistry, CONTEXT_CLEARED, identitySection } from './system-prompt.ts'
 import { tools, toolGuidanceSection } from './tool.ts'
+import type { SessionEvent } from './session.ts'
 import type { ToolCall } from './types.ts'
 
 const config = loadConfig()
@@ -86,9 +87,25 @@ const resumeId = resumeTarget()
 const sessionId = resumeId ?? newSessionId()
 const logPath = sessionLogPath(SESSION_ROOT, sessionId)
 
+/**
+ * 读回要续的那个会话，顺便修掉末尾的崩溃残骸（6.4）。
+ *
+ * 修必须在挂持久化**之前**做完：不截断就追加，新事件会接在半行后面，
+ * 把一次可恢复的崩溃变成永久损坏。
+ * @returns 读回来的事件。
+ */
+async function loadForResume(): Promise<SessionEvent[]> {
+  const loaded = loadSession(logPath)
+  if (loaded.tornBytes > 0) {
+    console.error(`[修复] 日志末尾有 ${loaded.tornBytes} 字节没写完的残骸（多半是上次被强杀），已丢弃。`)
+    await repairLog(logPath, loaded.committedBytes)
+  }
+  return loaded.events
+}
+
 // 续聊：先把日志读回来当种子，再挂上持久化——新事件接着往同一个文件后面写。
 // 重放不触发订阅者，所以读回来的事件不会被重新写一遍。
-const session = resumeId === undefined ? new Session() : new Session(loadSession(logPath).events)
+const session = resumeId === undefined ? new Session() : new Session(await loadForResume())
 const persistence = attachJsonlPersistence(session, logPath, resumeId === undefined
   ? { type: 'session', version: SESSION_FORMAT_VERSION, id: sessionId, createdAt: Date.now(), cwd: process.cwd() }
   : undefined)

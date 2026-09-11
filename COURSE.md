@@ -298,10 +298,13 @@ src/types.ts       # 改：ToolCall、tool role
   - 6.1 那条 `TOOL_OUTCOME_UNKNOWN` 到这里才真的成立：**没落盘的事件等于没发生过**
   - 对照 dsh 的 `DEFAULT_WRITE_BATCH_MAX_DELAY_MS` 与 `session-checkpoint-policy`
 
-- **6.4 坏掉的日志怎么读回来**（未写）
-  - 进程被杀在写一半：最后一行是残缺 JSON
-  - 截断修复；不认识的事件类型该拒绝还是该跳过（`ignorable`）
-  - 格式版本：什么时候必须拒绝读一个旧日志
+- **6.4 [坏掉的日志怎么读回来](docs/06-session/04-repair/01-repair.md)** ✅
+  - 痛点：末尾半行 JSON 让 `--resume` 打不开，一次崩溃报废整个会话
+  - 判据：**这种坏，是不是崩溃必然产生的那一种？** 是才修，否则拒绝
+  - 全程按**字节**扫描：进程可能死在一个 UTF-8 多字节字符中间
+  - `truncate` 必须在挂持久化之前：不截断就追加 = 永久损坏
+  - 「坏了」和「读不懂」是两种错误，因为用户该做的事不一样
+  - `ignorable` 与格式版本：**默认值选在出错时代价小的那一边**
 
 - **6.5 阶段验收**（未写）
   - 对照 `dsh/packages/core/session/`、`dsh/packages/session/`

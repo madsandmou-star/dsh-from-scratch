@@ -8,9 +8,9 @@
 // 改一改、再整个写回去。
 
 import { mkdirSync, readFileSync, existsSync, readdirSync } from 'node:fs'
-import { open } from 'node:fs/promises'
+import { open, truncate } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import type { Session, SessionEvent } from './session.ts'
+import type { Session, SessionEvent, SessionEventType } from './session.ts'
 
 /**
  * 磁盘格式的版本号。
@@ -209,50 +209,154 @@ export function attachJsonlPersistence(session: Session, path: string, header?: 
   }
 }
 
+/**
+ * 这个 build 认识的事件类型。
+ *
+ * 写成 `Record<SessionEventType, true>` 再取键，是为了让**漏写一项编译不过**——
+ * 往 `SessionEventMap` 里加事件却忘了加到这里，`tsc` 会当场报缺字段。
+ * dsh 那份是脚本生成的（`dsh/packages/core/session/src/known-event-types.ts`
+ * 开头就写着 GENERATED），因为它的事件表靠 declaration merging 散在几十个包里，
+ * 一个对象字面量看不全。我们只有一个文件，所以类型就够了。
+ */
+const KNOWN: Record<SessionEventType, true> = {
+  'turn/start': true,
+  'user/message': true,
+  'context/snapshot': true,
+  'assistant/message': true,
+  'tool/call': true,
+  'tool/result': true,
+}
+
+/** {@link KNOWN} 的运行时形态：读回来的 `type` 是 string，得用字符串集合比。 */
+export const KNOWN_EVENT_TYPES: ReadonlySet<string> = new Set(Object.keys(KNOWN))
+
+/**
+ * 日志坏了：内容本身不可信，不能拿它重建会话。
+ *
+ * 和 {@link SessionFormatUnsupportedError} 是两码事——那个是"日志好好的，
+ * 只是这个程序读不懂"。分成两个类型是因为**用户该做的事不一样**：
+ * 损坏要去看备份，读不懂要去换个版本的程序。
+ */
+export class SessionLogCorruptionError extends Error {
+  /** @param message - 坏在哪、哪一行。 */
+  constructor(message: string) {
+    super(message)
+    this.name = 'SessionLogCorruptionError'
+  }
+}
+
+/** 日志是完好的，但这个 build 解释不了它：版本不认识，或者有不认识的必需事件。 */
+export class SessionFormatUnsupportedError extends Error {
+  /** @param message - 为什么读不懂。 */
+  constructor(message: string) {
+    super(message)
+    this.name = 'SessionFormatUnsupportedError'
+  }
+}
+
 /** 从磁盘读回来的一次会话。 */
 export interface LoadedSession {
   header: SessionHeader
   events: SessionEvent[]
+  /**
+   * 可以安全追加的字节偏移——也就是**最后一个完整行的末尾**。
+   *
+   * 文件比它长，说明末尾有一段崩溃时写了一半的残骸。
+   * {@link repairLog} 把文件截到这里，新事件才不会接在半行后面。
+   */
+  committedBytes: number
+  /** 被判定为崩溃残骸、将被丢弃的字节数。0 表示文件是干净的。 */
+  tornBytes: number
 }
 
 /**
- * 读回一个会话日志。
+ * 读回一个会话日志，容忍**末尾**的崩溃残骸，拒绝其他一切异常。
  *
- * 严格：任何一行读不动就抛错，不跳过、不猜。**"能读多少算多少"是最坏的选择**——
- * 它会给你一段看起来正常、其实缺了几条的历史，而你无从发现。
- * 6.4 会区分两种坏行：进程被杀在写一半（末行残缺，可以修）和真的损坏（必须拒绝）。
+ * 全程按**字节**处理而不是按字符。进程可能死在一个 UTF-8 多字节序列的中间，
+ * 那几个字节不构成合法字符——`readFileSync(path, 'utf8')` 会把它们换成替换字符 `\uFFFD`，
+ * 于是字符串长度和文件长度对不上，算出来的截断偏移就是错的。
+ *
+ * 三种坏，三种反应：
+ * - **末行没有换行符** → 崩溃残骸，丢掉，报告丢了多少字节。这是唯一被容忍的坏。
+ * - **完整的行读不动，或 seq 对不上** → {@link SessionLogCorruptionError}。
+ * - **版本不认识，或有不认识且没标 ignorable 的事件** → {@link SessionFormatUnsupportedError}。
  * @param path - 日志文件路径。
- * @returns 头和全部事件。
- * @throws 文件不存在、缺头、版本不认识、或任何一行不是合法 JSON。
+ * @returns 头、事件、可追加偏移、被丢弃的残骸字节数。
+ * @throws 文件不存在、缺头，或上面后两种情况。
  */
 export function loadSession(path: string): LoadedSession {
   if (!existsSync(path)) throw new Error(`找不到会话日志：${path}`)
-  const text = readFileSync(path, 'utf8')
-  // 末尾那个换行会切出一个空串，去掉它。中间不该有空行——有就是坏了。
-  const lines = text.split('\n')
-  if (lines.at(-1) === '') lines.pop()
-  if (lines.length === 0) throw new Error(`会话日志是空的：${path}`)
+  const buffer = readFileSync(path)
 
-  const header = JSON.parse(lines[0] ?? '') as SessionHeader
-  if (header.type !== 'session') throw new Error(`会话日志的第一行不是会话头：${path}`)
+  // 0x0A 就是 '\n'。按字节找，不解码。
+  const headerEnd = buffer.indexOf(0x0A)
+  if (headerEnd === -1) throw new SessionLogCorruptionError(`会话日志没有完整的会话头：${path}`)
+
+  let header: SessionHeader
+  try {
+    header = JSON.parse(buffer.subarray(0, headerEnd).toString('utf8')) as SessionHeader
+  } catch (error) {
+    throw new SessionLogCorruptionError(`会话头不是合法的 JSON：${error instanceof Error ? error.message : String(error)}`)
+  }
+  if (header.type !== 'session') throw new SessionLogCorruptionError(`会话日志的第一行不是会话头：${path}`)
+  // 版本先判，再往下读：连怎么解释都不确定的时候，读出来的东西没有意义。
   if (header.version !== SESSION_FORMAT_VERSION) {
-    throw new Error(`会话日志的格式版本是 ${header.version}，这个程序只认 ${SESSION_FORMAT_VERSION}：${path}`)
+    throw new SessionFormatUnsupportedError(
+      `会话日志的格式版本是 ${header.version}，这个程序只认 ${SESSION_FORMAT_VERSION}：${path}\n`
+      + '这多半是更新的版本写的。用那个版本打开它，别用这个。',
+    )
   }
 
   const events: SessionEvent[] = []
-  for (const [index, line] of lines.slice(1).entries()) {
+  let committedBytes = headerEnd + 1
+  let line = 1              // 头是第 1 行，事件从第 2 行起
+  while (committedBytes < buffer.length) {
+    const lineEnd = buffer.indexOf(0x0A, committedBytes)
+    // 没有结尾换行 = 这一行没写完 = 崩溃残骸。前面的都是好的，到此为止。
+    if (lineEnd === -1) break
+    line += 1
+
+    const text = buffer.subarray(committedBytes, lineEnd).toString('utf8')
     let event: SessionEvent
     try {
-      event = JSON.parse(line) as SessionEvent
+      event = JSON.parse(text) as SessionEvent
     } catch (error) {
-      // 行号从 1 数（头是第 1 行），这样报出来的数字能直接拿去 `sed -n '42p'`。
-      throw new Error(`第 ${index + 2} 行不是合法的 JSON：${error instanceof Error ? error.message : String(error)}`)
+      // 已经有结尾换行还读不动，就不是"写了一半"，是真的坏了。
+      throw new SessionLogCorruptionError(`第 ${line} 行有完整的换行但不是合法 JSON：${error instanceof Error ? error.message : String(error)}`)
     }
-    // seq 必须等于它在日志里的位置。对不上说明文件被人手改过，或者拼接错了两个会话。
-    if (event.seq !== index) throw new Error(`第 ${index + 2} 行的 seq 是 ${event.seq}，按位置应该是 ${index}`)
+    if (event.seq !== events.length) {
+      throw new SessionLogCorruptionError(`第 ${line} 行的 seq 是 ${event.seq}，按位置应该是 ${events.length}`)
+    }
+    if (!KNOWN_EVENT_TYPES.has(event.type) && event.ignorable !== true) {
+      throw new SessionFormatUnsupportedError(
+        `第 ${line} 行是这个程序不认识的事件类型 "${event.type}"，而且没有标 ignorable。\n`
+        + '拒绝解释这个日志——跳过一条必需事件，重建出来的会话是错的。',
+      )
+    }
     events.push(event)
+    committedBytes = lineEnd + 1
   }
-  return { header, events }
+
+  return { header, events, committedBytes, tornBytes: buffer.length - committedBytes }
+}
+
+/**
+ * 把日志截到最后一个完整行，并 fsync。
+ *
+ * 不截的话，下一条事件会被追加在那半行后面，**拼成一行谁也读不懂的东西**——
+ * 一次崩溃就变成了永久损坏。截断必须发生在任何新的追加之前。
+ * @param path - 日志文件路径。
+ * @param committedBytes - {@link loadSession} 算出来的可追加偏移。
+ */
+export async function repairLog(path: string, committedBytes: number): Promise<void> {
+  await truncate(path, committedBytes)
+  // 截断本身也要落盘：否则崩溃两次之后，文件可能还是原来那么长。
+  const handle = await open(path, 'r+')
+  try {
+    await handle.sync()
+  } finally {
+    await handle.close()
+  }
 }
 
 /**

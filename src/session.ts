@@ -48,6 +48,15 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
     /** Unix 毫秒。重放时间线、算耗时都靠它。 */
     time: number
     data: SessionEventMap[K]
+    /**
+     * 标记"读的人不认识 `type` 时可以安全跳过这一条"（6.4）。
+     *
+     * 不写就是**必需**：读到不认识的类型时必须拒绝整个日志，而不是悄悄跳过——
+     * 一条不认识的必需事件可能改变后面全部内容的含义。
+     * 只有纯信息性的记录（统计、埋点）才该标 true。
+     * **默认必需意味着忘了标最多是过度拒绝（不方便），而不是悄悄读出一段残缺的历史。**
+     */
+    ignorable?: true
   }
 }[T]
 
@@ -188,6 +197,11 @@ export function deriveMessages(events: readonly SessionEvent[], systemPrompt: st
 
       case 'tool/result':
         messages.push({ role: 'tool', tool_call_id: event.data.callId, content: event.data.content })
+        break
+
+      default:
+        // 类型上这里到不了（联合是封闭的），运行时能：6.4 之后，一条标了
+        // ignorable 的、这个 build 不认识的事件会被读进日志。它不产生消息。
         break
     }
   }
