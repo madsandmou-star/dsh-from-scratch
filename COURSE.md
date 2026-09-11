@@ -306,8 +306,10 @@ src/types.ts       # 改：ToolCall、tool role
   - 「坏了」和「读不懂」是两种错误，因为用户该做的事不一样
   - `ignorable` 与格式版本：**默认值选在出错时代价小的那一边**
 
-- **6.5 阶段验收**（未写）
-  - 对照 `dsh/packages/core/session/`、`dsh/packages/session/`
+- **6.5 [阶段验收](docs/06-session/05-stage-review/01-stage-review.md)** ✅
+  - 四节课是同一个问题的四层：**"发生过什么"怎么才能真的可信**
+  - 七条工程判断（拆结构看几个冲突的理由、格式决定失败粒度、默认值选代价小的一边…）
+  - 对照 `dsh/packages/core/session/`、`dsh/packages/session/`：614 行 vs 3164 + 9414 行
 
 ## 第二阶段 · 演进成 dsh
 
@@ -437,7 +439,7 @@ src/types.ts       # 改：ToolCall、tool role
 - [x] 阶段 3：工具循环
 - [x] 阶段 4：工具集与执行前后
 - [x] 阶段 5：system prompt 组装
-- [ ] 阶段 6：会话落盘
+- [x] 阶段 6：会话落盘
 - [ ] 阶段 7：Cordis 插件与上下文
 - [ ] 阶段 8：服务与 inject
 - [ ] 阶段 9：可逆注册
@@ -455,4 +457,4 @@ src/types.ts       # 改：ToolCall、tool role
 - [ ] 阶段 21：骨架对齐
 - [ ] 毕业设计
 
-> **下一步**：阶段 6 已细化并开讲（6.1 完成）。下一节 6.2：JSONL 与重启续聊。
+> **下一步**：阶段 6 全部完成（6.1–6.5）。进入阶段 7 的第一件事是把它细化到小课级别——Cordis 迷你版、`index.ts` 的装配逻辑拆成插件、检查点从 `runTurn()` 里搬出去。
