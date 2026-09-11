@@ -108,16 +108,26 @@ npm run hello        # 等价于 node --import tsx src/hello.ts
 cp dsh-learn.example.json dsh-learn.json
 export DEEPSEEK_API_KEY=sk-...
 
-# 4. 阶段 1 的多轮对话 agent
-npm run dev          # 等价于 node --import tsx src/index.ts
+# 4. 跑 agent（写到哪一课，它就是那一课的样子）
+npm run dev                  # 等价于 node --import tsx src/index.ts
+npm run dev -- --resume      # 续上这个目录下最近一次会话（阶段 6.2）
 
-# 5. 跑演示（27 个，全都不需要 key：用的是假模型服务器）
-npm run demo demos/02-streaming/01-sse-framing.mjs   # 分帧器抗五种切法
-npm run demo demos/04-tools/04-red-green.mjs         # agent 自己修好一个测试
+# 5. 跑演示（35 个，全都不需要 key：用的是假模型服务器）
+npm run demo demos/02-streaming/01-sse-framing.mjs     # 分帧器抗五种切法
+npm run demo demos/04-tools/04-red-green.mjs           # agent 自己修好一个测试
+npm run demo demos/06-session/06-checkpoints.mjs       # 工具观测自己这次调用有没有落盘
 
 # 6. 自检：讲义里的链接和源码引用有没有失效
 npm run check
 npm run typecheck
+```
+
+三个调试开关（想看内部状态时打开）：
+
+```sh
+DSH_SHOW_PROMPT=1 npm run dev    # 5.1：system prompt 的段落清单和拼出来的全文
+DSH_DUMP_LOG=1 npm run dev       # 6.1：退出时并排打印事件日志和它投影出的 messages
+ls -lt .dsh-learn/sessions/      # 6.2：磁盘上的会话日志，一行一条 JSON，可以直接 grep
 ```
 
 > `dsh/` 是**可选**的：不初始化它，课程代码照样跑，只是讲义里"对照真实源码"那部分点不开。想学到位就初始化它——这门课一半的价值在对照上。

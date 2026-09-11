@@ -3,6 +3,6 @@
   "model": "deepseek-chat",
   "apiKeyEnv": "DEEPSEEK_API_KEY",
   "systemPrompt": "You are a helpful assistant.",
-  "只读": false,
-  "记账": false
+  "readOnly": false,
+  "accounting": false
 }
