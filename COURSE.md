@@ -317,11 +317,31 @@ src/types.ts       # 改：ToolCall、tool role
 
 ### 阶段 7：Cordis 插件与上下文
 
-> **痛点**：CLI 入口和另一个入口各读一遍配置、各造一遍工具数组，加第七个工具要改三处。
+> **目标**：把 `src/index.ts` 里那段"每个部件都得被我认识"的装配逻辑，拆成一棵能装能卸的插件树。
 >
-> **引入**：插件 = 一个 `apply(ctx)` 函数；应用 = 一棵插件树。
->
-> **对照**：[docs/cordis-tutorial/01-first-plugin.md](dsh/docs/cordis-tutorial/01-first-plugin.md)、`dsh/vendor/cordis/bin.js`。
+> **产出**：两个入口（交互 CLI 和一次性任务）共用同一份装配，加一个功能只改一个地方。
+
+#### 课程
+
+- **7.1 [第二个入口把装配抄了一遍](docs/07-cordis/01-first-plugin/01-first-plugin.md)** ✅
+  - 痛点复现：真写一个 `src/headless.ts`（跑一次任务就退出），看装配被抄了多少行
+  - 解法：插件 = 一个 `apply(ctx, config)` 函数；应用 = 一棵插件树
+  - 迷你 Context：`ctx.plugin(p, config)` 就是全部
+  - 对照 [docs/cordis-tutorial/01-first-plugin.md](dsh/docs/cordis-tutorial/01-first-plugin.md) 的三种插件形态
+
+- **7.2 ctx 为什么是每个插件一份**（未写）
+  - 痛点：如果 ctx 是全局单例，"谁注册的"这件事就丢了——卸载和诊断都无从谈起
+  - `extend()`：原型链继承，子看得见父的一切，父不被改
+  - 插件树能被打印出来：这是本阶段最有用的 debug 手法
+  - 对照 `dsh/vendor/cordis/src/context.ts` 的 `extend()` / `isolate()` / `intercept()`
+
+- **7.3 把装配拆成插件**（未写）
+  - 配置、system prompt、工具、护栏、会话、持久化各成一个插件
+  - 两个入口都变成一张插件清单；加第七个工具只改一处
+  - 主循环**暂时不拆**（阶段 13 才拆），这一课只拆装配
+
+- **7.4 阶段验收**（未写）
+  - 对照 `dsh/vendor/cordis/`、`dsh/packages/bundle/base/cordis.patch.yml`
 
 ### 阶段 8：服务与 inject
 
@@ -457,4 +477,4 @@ src/types.ts       # 改：ToolCall、tool role
 - [ ] 阶段 21：骨架对齐
 - [ ] 毕业设计
 
-> **下一步**：阶段 6 全部完成（6.1–6.5）。进入阶段 7 的第一件事是把它细化到小课级别——Cordis 迷你版、`index.ts` 的装配逻辑拆成插件、检查点从 `runTurn()` 里搬出去。
+> **下一步**：阶段 7 已细化并开讲（7.1 完成）。下一节 7.2：ctx 为什么是每个插件一份。

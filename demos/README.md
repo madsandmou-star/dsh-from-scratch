@@ -89,3 +89,10 @@ npm run demo demos/04-tools/01-write-edit.mjs
 | `06-session/06-checkpoints.mjs` | 6.3 | 工具去数自己这次调用有没有落盘：有检查点 1，没有 0 |
 | `06-session/07-torn-tail.mjs` | 6.4 | 末尾半行能修（丢 67 字节）；中间坏 / seq 空洞被拒 |
 | `06-session/08-unknown-and-version.mjs` | 6.4 | `ignorable` 的有无决定跳过还是拒绝；版本不认识怎么报 |
+
+## 阶段 7：Cordis 插件与上下文
+
+| 脚本 | 对应课 | 看什么 |
+|---|---|---|
+| `07-cordis/01-first-plugin.mjs` | 7.1 | 三种插件形态、插件树、装配失败当场炸 |
+| `07-cordis/02-duplicated-assembly.mjs` | 7.1 | 两个入口的装配重了 17 行（占 headless 的 81%） |
