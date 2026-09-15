@@ -96,3 +96,5 @@ npm run demo demos/04-tools/01-write-edit.mjs
 |---|---|---|
 | `07-cordis/01-first-plugin.mjs` | 7.1 | 三种插件形态、插件树、装配失败当场炸 |
 | `07-cordis/02-duplicated-assembly.mjs` | 7.1 | 两个入口的装配重了 17 行（占 headless 的 81%） |
+| `07-cordis/03-extend.mjs` | 7.2 | 看得见 / 遮得住 / 改不到；继承是活的；两个经典坑 |
+| `07-cordis/04-who-added-what.mjs` | 7.2 | 树 + 每层各自贡献了什么；兄弟插件互不相见 |

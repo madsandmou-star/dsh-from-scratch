@@ -329,7 +329,7 @@ src/types.ts       # 改：ToolCall、tool role
   - 迷你 Context：`ctx.plugin(p, config)` 就是全部
   - 对照 [docs/cordis-tutorial/01-first-plugin.md](dsh/docs/cordis-tutorial/01-first-plugin.md) 的三种插件形态
 
-- **7.2 ctx 为什么是每个插件一份**（未写）
+- **7.2 [ctx 为什么是每个插件一份](docs/07-cordis/02-context/01-context.md)** ✅
   - 痛点：如果 ctx 是全局单例，"谁注册的"这件事就丢了——卸载和诊断都无从谈起
   - `extend()`：原型链继承，子看得见父的一切，父不被改
   - 插件树能被打印出来：这是本阶段最有用的 debug 手法
@@ -477,4 +477,4 @@ src/types.ts       # 改：ToolCall、tool role
 - [ ] 阶段 21：骨架对齐
 - [ ] 毕业设计
 
-> **下一步**：阶段 7 已细化并开讲（7.1 完成）。下一节 7.2：ctx 为什么是每个插件一份。
+> **下一步**：阶段 7 进行中（7.1、7.2 完成）。下一节 7.3：把装配拆成插件。

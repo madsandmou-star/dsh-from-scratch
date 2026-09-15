@@ -1,40 +1,55 @@
-// 阶段 7.1：迷你版 Cordis —— 插件与上下文。
+// 阶段 7.1–7.2：迷你版 Cordis —— 插件与上下文。
 //
 // 这是这门课第一次"先自己写一个几十行的版本，再和 dsh/vendor/cordis/ 对照"。
 // 不直接用 Cordis，是因为**用一个插件系统和理解它为什么长这样，是两件事**。
 //
-// 这一课只做两件事：
-//   ① 插件是什么（一个 apply 函数）
-//   ② 应用是什么（一棵插件树）
+// 这两课只做两件事：
+//   ① 插件是什么（一个 apply 函数）、应用是什么（一棵插件树）  —— 7.1
+//   ② 子 context 怎么既看得见父的东西、又改不到它              —— 7.2
 // 服务（阶段 8）、可逆注册（阶段 9）、类型化事件（阶段 10）都还没有。
 
 /**
  * 一个插件能拿到的东西。
  *
- * 每个插件拿到的是**自己的一份** `Context`，不是同一个全局对象——7.2 讲为什么。
- * 现在它只有一个方法：装一个子插件。
+ * 每个插件拿到的是**自己的一份** `Context`，而且这一份是用 {@link extend}
+ * 从父那里派生出来的：原型链继承父的一切，自己的属性遮住继承来的，父不被改。
  */
 export class Context {
-  /** 这个 context 属于哪个插件。只用于诊断输出，不参与任何逻辑。 */
-  readonly name: string
-  /** 装它的那个 context。根 context 是 undefined。 */
-  readonly parent: Context | undefined
-  /** 在它下面装过的子 context，按装载顺序。 */
-  private readonly children: Context[] = []
+  /** 这个 context 属于哪个插件。用于诊断输出。 */
+  readonly name: string = 'root'
+  /** 装它的那个 context。根是 undefined。 */
+  readonly parent: Context | undefined = undefined
+  /**
+   * 在它下面直接装过的子 context，按装载顺序。
+   *
+   * 每个 context 都要有**自己的**这个数组——{@link plugin} 里显式给了它一个。
+   * 忘了给的话它会顺着原型链找到父的那个，于是所有插件都挂进同一个数组，
+   * 树就塌成一层了。这是原型链继承最容易踩的坑：**可变对象不能靠继承共享。**
+   */
+  readonly children: Context[] = []
 
   /**
-   * @param name - 这个 context 的名字；根的名字是 `'root'`。
-   * @param parent - 父 context；只有根没有。
+   * 派生一个子 context。
+   *
+   * `Object.create(this)` 让子**以父为原型**：父身上的一切，子都看得见；
+   * 而子身上定义的同名属性会**遮住**继承来的那个，父自己一个字节都不变。
+   *
+   * 和"把父的属性复制一份"最大的区别是：**继承是活的**。
+   * 父在这之后新增的属性，子立刻就能看见；复制只能拿到复制那一刻的快照。
+   * 插件是陆续装上去的，所以这个差别是决定性的。
+   * @param meta - 要在子身上定义的自有属性。
+   * @returns 一个以当前 context 为原型的子 context。
    */
-  constructor(name = 'root', parent?: Context) {
-    this.name = name
-    this.parent = parent
+  extend<T extends object>(meta: T): this & T {
+    const child = Object.create(this) as this & T
+    Object.assign(child, meta)
+    return child
   }
 
   /**
    * 装一个插件。
    *
-   * 做三件事：给它造一个**子 context**、记进插件树、调它的 `apply`。
+   * 做三件事：{@link extend} 出一个子 context、记进插件树、调它的 `apply`。
    * 没有返回值，也没有"卸载"——阶段 9 才会有。
    * @param plugin - 一个 `apply` 函数，或者一个带 `apply` 方法的对象。
    * @param config - 原样传给 `apply` 的第二个参数。这个插件的配置。
@@ -47,7 +62,8 @@ export class Context {
     }
     // 名字用来在插件树里认人。函数插件用函数名，对象插件优先用它自己声明的 name。
     const name = (typeof plugin === 'function' ? plugin.name : plugin.name ?? plugin.apply.name) || '(匿名)'
-    const child = new Context(name, this)
+    // children 必须显式给一个新数组——见它的字段注释。
+    const child = this.extend({ name, parent: this as Context, children: [] as Context[] })
     this.children.push(child)
     // 同步调用，**异常不拦**：装配失败必须当场炸，而不是"这一项被跳过了"。
     // dsh 的 cordis 教程第一章就在演示这件事：apply 抛异常，进程终止。
@@ -65,6 +81,18 @@ export class Context {
     const lines = [`${indent}${this.name}`]
     for (const child of this.children) lines.push(child.inspect(`${indent}  `))
     return lines.join('\n')
+  }
+
+  /**
+   * 列出这个 context 自己加的东西——不含从父继承来的。
+   *
+   * 靠的是 `Object.getOwnPropertyNames`：它只看**自有属性**，不看原型链。
+   * "这一层贡献了什么"和"这一层能看见什么"是两个问题，这个方法回答前者。
+   * @returns 自有属性名，去掉 `plugin()` 自己塞的那三个。
+   */
+  ownKeys(): string[] {
+    const internal = new Set(['name', 'parent', 'children'])
+    return Object.getOwnPropertyNames(this).filter(key => !internal.has(key))
   }
 }
 
