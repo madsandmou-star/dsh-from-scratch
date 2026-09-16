@@ -340,8 +340,10 @@ src/types.ts       # 改：ToolCall、tool role
   - 两个入口都变成一张插件清单；加第七个工具只改一处
   - 主循环**暂时不拆**（阶段 13 才拆），这一课只拆装配
 
-- **7.4 阶段验收**（未写）
-  - 对照 `dsh/vendor/cordis/`、`dsh/packages/bundle/base/cordis.patch.yml`
+- **7.4 [阶段验收](docs/07-cordis/04-stage-review/01-stage-review.md)** ✅
+  - 三节课拆的是同一个方向：部件自己声明贡献，入口只列清单
+  - 六条工程判断（重复是症状依赖方向才是病、绑定隔离 ≠ 值隔离、过渡态要留标记…）
+  - 对照 `dsh/vendor/cordis/`：132 行 vs 2693 行
 
 ### 阶段 8：服务与 inject
 
@@ -460,7 +462,7 @@ src/types.ts       # 改：ToolCall、tool role
 - [x] 阶段 4：工具集与执行前后
 - [x] 阶段 5：system prompt 组装
 - [x] 阶段 6：会话落盘
-- [ ] 阶段 7：Cordis 插件与上下文
+- [x] 阶段 7：Cordis 插件与上下文
 - [ ] 阶段 8：服务与 inject
 - [ ] 阶段 9：可逆注册
 - [ ] 阶段 10：类型化事件与 waterfall
@@ -477,4 +479,4 @@ src/types.ts       # 改：ToolCall、tool role
 - [ ] 阶段 21：骨架对齐
 - [ ] 毕业设计
 
-> **下一步**：阶段 7 进行中（7.1–7.3 完成）。下一节 7.4：阶段验收。
+> **下一步**：阶段 7 全部完成（7.1–7.4）。进入阶段 8 的第一件事是把它细化到小课级别——服务挂在 ctx 上、`inject` 声明依赖、装载顺序由依赖算出来、`nest()` 退休。
