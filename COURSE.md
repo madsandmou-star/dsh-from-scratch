@@ -335,7 +335,7 @@ src/types.ts       # 改：ToolCall、tool role
   - 插件树能被打印出来：这是本阶段最有用的 debug 手法
   - 对照 `dsh/vendor/cordis/src/context.ts` 的 `extend()` / `isolate()` / `intercept()`
 
-- **7.3 把装配拆成插件**（未写）
+- **7.3 [把装配拆成插件](docs/07-cordis/03-assembly/01-assembly.md)** ✅
   - 配置、system prompt、工具、护栏、会话、持久化各成一个插件
   - 两个入口都变成一张插件清单；加第七个工具只改一处
   - 主循环**暂时不拆**（阶段 13 才拆），这一课只拆装配
@@ -477,4 +477,4 @@ src/types.ts       # 改：ToolCall、tool role
 - [ ] 阶段 21：骨架对齐
 - [ ] 毕业设计
 
-> **下一步**：阶段 7 进行中（7.1、7.2 完成）。下一节 7.3：把装配拆成插件。
+> **下一步**：阶段 7 进行中（7.1–7.3 完成）。下一节 7.4：阶段验收。

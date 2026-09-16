@@ -98,3 +98,4 @@ npm run demo demos/04-tools/01-write-edit.mjs
 | `07-cordis/02-duplicated-assembly.mjs` | 7.1 | 两个入口的装配重了 17 行（占 headless 的 81%） |
 | `07-cordis/03-extend.mjs` | 7.2 | 看得见 / 遮得住 / 改不到；继承是活的；两个经典坑 |
 | `07-cordis/04-who-added-what.mjs` | 7.2 | 树 + 每层各自贡献了什么；兄弟插件互不相见 |
+| `07-cordis/05-assembled.mjs` | 7.3 | 重构后的装配树；两个入口 151→116 / 68→47 行 |

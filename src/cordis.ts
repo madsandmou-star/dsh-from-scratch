@@ -105,3 +105,28 @@ export class Context {
 export type Plugin<T = unknown> =
   | ((ctx: Context, config: T) => void)
   | { name?: string, apply: (ctx: Context, config: T) => void }
+
+/**
+ * 按顺序把若干插件**嵌套**装载：后一个是前一个的子插件。
+ *
+ * 为什么要嵌套而不是并列：7.2 演示过，兄弟插件之间互相看不见。
+ * 嵌套之后，后面的插件通过原型链就能读到前面写在 ctx 上的东西。
+ *
+ * **嵌套的深度就是手写的依赖顺序**——这是阶段 8 之前的过渡办法。
+ * 有了服务之后，这些插件会被拍平成兄弟，顺序由 `inject` 算出来。
+ * @param plugins - 按依赖顺序排列的插件；前面的先装，后面的能看见前面的产出。
+ * @returns 一个插件，装上它就等于按顺序装完整条链。
+ */
+export function nest(...plugins: Plugin<void>[]): Plugin<void> {
+  const [head, ...rest] = plugins
+  if (head === undefined) return function empty() {}
+  const apply = typeof head === 'function' ? head : head.apply
+  const name = (typeof head === 'function' ? head.name : head.name ?? head.apply.name) || '(匿名)'
+  return {
+    name,
+    apply(ctx) {
+      apply(ctx, undefined)
+      if (rest.length > 0) ctx.plugin(nest(...rest))
+    },
+  }
+}

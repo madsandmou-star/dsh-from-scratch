@@ -2,6 +2,10 @@
 //   node --import tsx demos/07-cordis/02-duplicated-assembly.mjs
 //
 // 不靠感觉说"重复很多"——把两个文件的装配段落逐行比一遍，数出来。
+//
+// 读的是 fixtures/ 里 **7.3 重构之前**的那两个文件（见 fixtures/README.md）：
+// src/ 里的代码是原地演进的，而这一课要讲的正是当时的重复有多少。
+// 重构之后的样子见 05-assembled.mjs。
 
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -11,7 +15,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 
 /** 读一个入口文件里"装配"那一段：从 loadConfig() 到主循环之前。 */
 function assemblyOf(file) {
-  const text = readFileSync(join(ROOT, 'src', file), 'utf8')
+  const text = readFileSync(join(ROOT, 'demos', '07-cordis', 'fixtures', file), 'utf8')
   const lines = text.split('\n')
   const start = lines.findIndex(l => l.includes('loadConfig()'))
   const end = lines.findIndex((l, i) => i > start && (l.includes('MAX_STEPS =') || l.includes('createInterface(')))
@@ -20,13 +24,13 @@ function assemblyOf(file) {
     .filter(l => l !== '' && !l.startsWith('//') && !l.startsWith('*') && !l.startsWith('/*'))
 }
 
-const cli = assemblyOf('index.ts')
-const headless = assemblyOf('headless.ts')
+const cli = assemblyOf('index.before.ts')
+const headless = assemblyOf('headless.before.ts')
 const shared = headless.filter(l => cli.includes(l))
 
 console.log(`=== 两个入口的装配段 ===`)
-console.log(`  src/index.ts     ${String(cli.length).padStart(3)} 行有效代码`)
-console.log(`  src/headless.ts  ${String(headless.length).padStart(3)} 行有效代码`)
+console.log(`  index.ts（7.1 版） ${String(cli.length).padStart(3)} 行有效代码`)
+console.log(`  headless.ts（7.1 版）${String(headless.length).padStart(3)} 行有效代码`)
 console.log(`  **完全一样的**    ${String(shared.length).padStart(3)} 行  （占 headless 的 ${Math.round(shared.length / headless.length * 100)}%）`)
 
 console.log('\n=== 一字不差抄过来的那些 ===')
