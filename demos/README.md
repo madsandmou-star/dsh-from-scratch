@@ -106,3 +106,5 @@ npm run demo demos/04-tools/01-write-edit.mjs
 |---|---|---|
 | `08-services/01-provide.mjs` | 8.1 | 兄弟可见、整棵树可见、重名抛错、时序还没解放 |
 | `08-services/02-assembled-flat.mjs` | 8.1 | 真实装配：树变平了，服务表有七项 |
+| `08-services/03-inject.mjs` | 8.2 | 最坏顺序照样装对；挂起诊断；循环依赖就是"永远等不到" |
+| `08-services/04-shuffled.mjs` | 8.2 | 真实装配随机打乱 20 次，服务集合完全一样 |

@@ -39,6 +39,11 @@ export class Context {
    */
   private readonly services = new Map<string, unknown>()
 
+  /**
+   * 依赖还没齐、暂时装不上的插件（8.2）。和 {@link services} 一样，整棵树共用一份。
+   */
+  private readonly pending: PendingPlugin[] = []
+
   /** 这棵树的根。服务的访问器都定义在它身上，于是所有后代都读得到。 */
   private get root(): Context {
     let node: Context = this
@@ -65,6 +70,8 @@ export class Context {
       configurable: true,      // 阶段 9 要能撤销，所以必须可重新配置
       enumerable: true,
     })
+    // 有新服务了，看看有没有插件正等着它（8.2）。
+    this.drain()
   }
 
   /**
@@ -98,8 +105,9 @@ export class Context {
   /**
    * 装一个插件。
    *
-   * 做三件事：{@link extend} 出一个子 context、记进插件树、调它的 `apply`。
-   * 没有返回值，也没有"卸载"——阶段 9 才会有。
+   * 三件事：{@link extend} 出一个子 context、记进插件树、调它的 `apply`。
+   * 但在这之前先看它的 `inject`：**依赖没就绪就不装，挂起来等**（8.2）。
+   * 没有"卸载"——阶段 9 才会有。
    * @param plugin - 一个 `apply` 函数，或者一个带 `apply` 方法的对象。
    * @param config - 原样传给 `apply` 的第二个参数。这个插件的配置。
    * @throws 传进来的东西不是插件。
@@ -111,12 +119,59 @@ export class Context {
     }
     // 名字用来在插件树里认人。函数插件用函数名，对象插件优先用它自己声明的 name。
     const name = (typeof plugin === 'function' ? plugin.name : plugin.name ?? plugin.apply.name) || '(匿名)'
+    const inject = typeof plugin === 'function' ? [] : plugin.inject ?? []
+    const entry: PendingPlugin = { name, inject, apply: apply as PendingPlugin['apply'], config, ctx: this }
+    // 依赖齐了就立刻装；差一个就挂起，等 provide 把它唤醒。
+    if (this.missing(inject).length > 0) this.root.pending.push(entry)
+    else this.install(entry)
+  }
+
+  /**
+   * 真正把一个插件装上：派生子 context、记进树、调 apply。
+   * @param entry - 待装的插件。
+   */
+  private install(entry: PendingPlugin): void {
     // children 必须显式给一个新数组——见它的字段注释。
-    const child = this.extend({ name, parent: this as Context, children: [] as Context[] })
-    this.children.push(child)
+    const child = entry.ctx.extend({ name: entry.name, parent: entry.ctx as Context, children: [] as Context[] })
+    entry.ctx.children.push(child)
     // 同步调用，**异常不拦**：装配失败必须当场炸，而不是"这一项被跳过了"。
-    // dsh 的 cordis 教程第一章就在演示这件事：apply 抛异常，进程终止。
-    apply(child, config as T)
+    entry.apply(child, entry.config)
+  }
+
+  /**
+   * 这些依赖里，哪些还没被提供。
+   * @param inject - 依赖的服务名。
+   * @returns 还缺的那些。
+   */
+  private missing(inject: readonly string[]): string[] {
+    return inject.filter(name => !this.root.services.has(name))
+  }
+
+  /**
+   * 把挂起队列里依赖已经齐了的插件装上，直到装不动为止。
+   *
+   * 每装一个就**重新扫一遍**：一个插件装上时可能又提供了新服务，
+   * 于是原本还差东西的另一个插件这一刻就齐了。
+   */
+  private drain(): void {
+    for (;;) {
+      const index = this.root.pending.findIndex(entry => this.missing(entry.inject).length === 0)
+      if (index === -1) return
+      const [entry] = this.root.pending.splice(index, 1)
+      // splice 保证只会取到一个；这个断言表达的是那个不变量。
+      if (entry !== undefined) this.install(entry)
+    }
+  }
+
+  /**
+   * 还挂着没装的插件，以及各自在等什么。
+   *
+   * 本阶段最有用的 debug 手法：**"我的插件没跑"，先看它是不是在等一个永远不会来的服务**。
+   * 装配结束后这个列表应该是空的——不空就说明有依赖没人提供（多半是名字写错了）。
+   * @returns 每个挂起插件的名字和它还缺的服务。
+   */
+  pendingPlugins(): { name: string, waitingFor: string[] }[] {
+    return this.root.pending.map(entry => ({ name: entry.name, waitingFor: this.missing(entry.inject) }))
   }
 
   /**
@@ -153,4 +208,24 @@ export class Context {
  */
 export type Plugin<T = unknown> =
   | ((ctx: Context, config: T) => void)
-  | { name?: string, apply: (ctx: Context, config: T) => void }
+  | {
+    name?: string
+    /**
+     * 这个插件要用到哪些服务（8.2）。
+     *
+     * 声明了就意味着：**这些服务没就绪之前，不要装我**。装载器会把这个插件
+     * 挂起，等最后一个依赖被 provide 时再装。所以清单里的书写顺序不再重要。
+     */
+    inject?: readonly string[]
+    apply: (ctx: Context, config: T) => void
+  }
+
+/** 挂在队列里等依赖的一个插件。 */
+interface PendingPlugin {
+  name: string
+  inject: readonly string[]
+  apply: (ctx: Context, config: unknown) => void
+  config: unknown
+  /** 当初调 `ctx.plugin()` 的那个 context——装上时它才是父节点。 */
+  ctx: Context
+}

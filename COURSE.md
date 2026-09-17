@@ -360,18 +360,24 @@ src/types.ts       # 改：ToolCall、tool role
   - 回头看 7.2 那条"可变对象不能靠继承共享"——这里**恰恰要共享**，所以故意不给子一份
   - 对照 `dsh/vendor/cordis/src/reflect.ts` 的 `provide()`，以及 ctx 为什么是 Proxy
 
-- **8.2 顺序由依赖算出来**（未写）
-  - 痛点：平铺之后顺序仍然重要——提供者必须先跑
-  - `inject` 声明依赖；依赖没就绪就**推迟**这个插件，等它出现再装
-  - `nest()` 退休，`corePlugins` 打乱顺序照样跑
-  - 对照 [docs/cordis-tutorial/03-services.md](dsh/docs/cordis-tutorial/03-services.md)、`dsh/vendor/cordis/src/fiber.ts`
+- **8.2 [顺序由依赖算出来](docs/08-services/02-inject/01-inject.md)** ✅
+  - 痛点：平铺之后顺序仍然重要——提供者必须先跑，而写错只报"属性不存在"
+  - `inject` 声明依赖；依赖没就绪就**挂起**这个插件，等它出现再装
+  - `corePlugins` 打乱顺序照样跑（随机 20 次验证）
+  - 挂起不报错：装配中分不清"还没到"和"永远不会到"；循环依赖就是"永远等不到"
+  - 对照 [docs/cordis-tutorial/01-first-plugin.md](dsh/docs/cordis-tutorial/01-first-plugin.md)、`dsh/vendor/cordis/src/fiber.ts`
 
-- **8.3 Service 类：第三种插件形态**（未写）
+- **8.3 插件可以是异步的**（未写）
+  - 痛点：7.3 那行 `void repairLog(...)` 的债——同步 `apply` 里发不出 `await`
+  - `apply` 返回 promise 时装载器等它完成，再算下一轮依赖
+  - 装载过程中做 I/O：dsh 里绝大多数真实插件的形态
+
+- **8.4 Service 类：第三种插件形态**（未写）
   - 为什么服务值得一个基类：注册、卸载、名字三件事总是一起出现
   - `super(ctx, name)` 做了什么
   - 对照 `dsh/vendor/cordis/src/service.ts`
 
-- **8.4 阶段验收**（未写）
+- **8.5 阶段验收**（未写）
   - 对照 `ctx.llm` / `ctx.tools` / `ctx.sessions` 在 dsh 里的真实样子
 
 ### 阶段 9：可逆注册
@@ -500,4 +506,4 @@ src/types.ts       # 改：ToolCall、tool role
 - [ ] 阶段 21：骨架对齐
 - [ ] 毕业设计
 
-> **下一步**：阶段 8 进行中（8.1 完成）。下一节 8.2：顺序由依赖算出来。
+> **下一步**：阶段 8 进行中（8.1、8.2 完成）。下一节 8.3：插件可以是异步的。

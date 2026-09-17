@@ -299,4 +299,4 @@ export const corePlugins = [
   TypeError: Cannot read properties of undefined (reading 'readOnly')
 ```
 
-**8.2 引入 `inject`**：插件声明自己依赖哪些服务，装载器发现依赖没就绪就**推迟**它，等那个服务出现再装。那时这个数组怎么排都行——而这一步会顺手解决另一件事：**插件可以是异步的**（7.3 那行 `void repairLog(...)` 的债，到那时才能还）。
+**[8.2](../02-inject/01-inject.md) 引入 `inject`**：插件声明自己依赖哪些服务，装载器发现依赖没就绪就**挂起**它，等那个服务出现再装。那时这个数组怎么排都行。（7.3 那行 `void repairLog(...)` 的债要等 8.3——那一课让 `apply` 可以是异步的。）
