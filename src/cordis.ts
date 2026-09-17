@@ -114,6 +114,10 @@ export type Plugin<T = unknown> =
  *
  * **嵌套的深度就是手写的依赖顺序**——这是阶段 8 之前的过渡办法。
  * 有了服务之后，这些插件会被拍平成兄弟，顺序由 `inject` 算出来。
+ *
+ * 只接受**不带配置**的插件（`Plugin<void>`）：一条链上没有地方安放每个插件各自的配置。
+ * 要带配置就直接 `ctx.plugin(p, config)`。装配插件的配置目前都从 `ctx.config` 上读，
+ * 所以这个限制还没咬到人；阶段 11 讲"配置即组合"时，这个组合函数会整个被 loader 取代。
  * @param plugins - 按依赖顺序排列的插件；前面的先装，后面的能看见前面的产出。
  * @returns 一个插件，装上它就等于按顺序装完整条链。
  */
@@ -125,7 +129,7 @@ export function nest(...plugins: Plugin<void>[]): Plugin<void> {
   return {
     name,
     apply(ctx) {
-      apply(ctx, undefined)
+      apply(ctx)
       if (rest.length > 0) ctx.plugin(nest(...rest))
     },
   }
