@@ -105,13 +105,23 @@ export const guardsPlugin = {
  */
 export const sessionPlugin = {
   name: 'sessionPlugin',
-  apply(ctx: Context): void {
+  /**
+   * 异步（8.3）：续聊时要先把日志末尾的崩溃残骸截掉，那是一次真实的磁盘写。
+   *
+   * 7.3 那一版是同步的，靠一句"下一个插件才挂持久化，中间没有 await"的时序论证
+   * 来保证截断先于第一次写。8.2 之后那个论证连前提都没了——装载顺序是算出来的，
+   * "下一个插件是谁"作者不再控制。现在它变回一个老老实实的 `await`：
+   * **在这个 promise resolve 之前，`session` 服务不存在，
+   * 而 `persistencePlugin` inject 了它，所以它一定还挂着。**
+   * @param ctx - 这个插件自己的 context。
+   */
+  async apply(ctx: Context): Promise<void> {
     const resumeId = resumeTarget()
     const sessionId = resumeId ?? newSessionId()
     const logPath = sessionLogPath(SESSION_ROOT, sessionId)
     ctx.provide('sessionId', sessionId)
     ctx.provide('logPath', logPath)
-    ctx.provide('session', resumeId === undefined ? new Session() : new Session(loadAndRepair(logPath)))
+    ctx.provide('session', resumeId === undefined ? new Session() : new Session(await loadAndRepair(logPath)))
   },
 }
 
@@ -134,18 +144,16 @@ function resumeTarget(): string | undefined {
 /**
  * 读回日志，顺便修掉末尾的崩溃残骸（6.4）。
  *
- * 修在这里同步做完，因为 `apply` 是同步的，而**修必须发生在挂持久化之前**：
- * 不截断就追加会把一次可恢复的崩溃变成永久损坏。
+ * **修必须发生在挂持久化之前**：不截断就追加会把一次可恢复的崩溃变成永久损坏。
+ * 8.3 之后这条保证靠 `await` 本身成立，不再靠任何关于装载顺序的论证。
  * @param logPath - 日志文件路径。
  * @returns 读回来的事件。
  */
-function loadAndRepair(logPath: string): ReturnType<typeof loadSession>['events'] {
+async function loadAndRepair(logPath: string): Promise<ReturnType<typeof loadSession>['events']> {
   const loaded = loadSession(logPath)
   if (loaded.tornBytes > 0) {
     console.error(`[修复] 日志末尾有 ${loaded.tornBytes} 字节没写完的残骸（多半是上次被强杀），已丢弃。`)
-    // 同步 apply 里发不出 await，但下一个插件才会挂持久化，所以这个 promise
-    // 一定在第一次写之前完成——它俩之间没有任何 await。
-    void repairLog(logPath, loaded.committedBytes)
+    await repairLog(logPath, loaded.committedBytes)
   }
   return loaded.events
 }

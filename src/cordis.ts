@@ -44,6 +44,13 @@ export class Context {
    */
   private readonly pending: PendingPlugin[] = []
 
+  /**
+   * 还没跑完的异步 `apply`（8.3）。和上面两个一样，整棵树共用一份。
+   *
+   * 装载因此不再是"调完 `plugin()` 就装完了"：真正的完成点是 {@link ready}。
+   */
+  private readonly inflight: Promise<void>[] = []
+
   /** 这棵树的根。服务的访问器都定义在它身上，于是所有后代都读得到。 */
   private get root(): Context {
     let node: Context = this
@@ -134,8 +141,12 @@ export class Context {
     // children 必须显式给一个新数组——见它的字段注释。
     const child = entry.ctx.extend({ name: entry.name, parent: entry.ctx as Context, children: [] as Context[] })
     entry.ctx.children.push(child)
-    // 同步调用，**异常不拦**：装配失败必须当场炸，而不是"这一项被跳过了"。
-    entry.apply(child, entry.config)
+    // **异常不拦**：装配失败必须当场炸，而不是"这一项被跳过了"。
+    const result = entry.apply(child, entry.config)
+    // 异步插件（8.3）：记下这个 promise，{@link ready} 会等它。
+    // 它跑完之前，它 provide 的服务还不存在，所以依赖它的插件仍然挂着——
+    // **"依赖就绪"从此包含了"提供者真的跑完了"**。
+    if (result instanceof Promise) this.root.inflight.push(result)
   }
 
   /**
@@ -160,6 +171,25 @@ export class Context {
       const [entry] = this.root.pending.splice(index, 1)
       // splice 保证只会取到一个；这个断言表达的是那个不变量。
       if (entry !== undefined) this.install(entry)
+    }
+  }
+
+  /**
+   * 等到装配真正结束：所有异步 `apply` 都跑完，而且再没有插件能被唤醒。
+   *
+   * 同步装载时代不需要它——`plugin()` 返回就等于装完了。有了异步插件之后，
+   * "调用返回"和"装配完成"是两件事，必须有一个显式的汇合点。
+   *
+   * 循环是必须的：等一批 promise 的过程中，它们 provide 的服务会唤醒更多插件，
+   * 而那些插件可能又是异步的。**一轮等不干净。**
+   * @throws 任何一个插件的 `apply` 抛出的错误，原样向上抛。
+   */
+  async ready(): Promise<void> {
+    for (;;) {
+      const tasks = this.root.inflight.splice(0)
+      if (tasks.length === 0) return
+      // 不用 allSettled：装配失败要当场炸，不要"记下来最后一起报"。
+      await Promise.all(tasks)
     }
   }
 
@@ -207,7 +237,7 @@ export class Context {
  * 对象形态的好处是能带 `name`：函数插件靠函数名，而打包工具可能把函数名改掉。
  */
 export type Plugin<T = unknown> =
-  | ((ctx: Context, config: T) => void)
+  | ((ctx: Context, config: T) => void | Promise<void>)
   | {
     name?: string
     /**
@@ -217,14 +247,20 @@ export type Plugin<T = unknown> =
      * 挂起，等最后一个依赖被 provide 时再装。所以清单里的书写顺序不再重要。
      */
     inject?: readonly string[]
-    apply: (ctx: Context, config: T) => void
+    /**
+     * 装这个插件时跑的函数。
+     *
+     * 返回 promise 时装载器会等它（8.3）：在它 resolve 之前，这个插件 provide 的
+     * 服务还不存在，依赖它的插件继续挂着。所以插件可以在装载过程中做 I/O。
+     */
+    apply: (ctx: Context, config: T) => void | Promise<void>
   }
 
 /** 挂在队列里等依赖的一个插件。 */
 interface PendingPlugin {
   name: string
   inject: readonly string[]
-  apply: (ctx: Context, config: unknown) => void
+  apply: (ctx: Context, config: unknown) => void | Promise<void>
   config: unknown
   /** 当初调 `ctx.plugin()` 的那个 context——装上时它才是父节点。 */
   ctx: Context

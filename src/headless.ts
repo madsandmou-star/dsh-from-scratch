@@ -69,3 +69,5 @@ function headless(ctx: Context): void {
 
 export const root = new Context()
 root.plugin(assemble(headless))
+// 装配现在可能是异步的（8.3）：等它真正完成。任何插件 apply 抛的错都从这里出来。
+await root.ready()

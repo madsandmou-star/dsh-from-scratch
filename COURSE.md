@@ -367,10 +367,12 @@ src/types.ts       # 改：ToolCall、tool role
   - 挂起不报错：装配中分不清"还没到"和"永远不会到"；循环依赖就是"永远等不到"
   - 对照 [docs/cordis-tutorial/01-first-plugin.md](dsh/docs/cordis-tutorial/01-first-plugin.md)、`dsh/vendor/cordis/src/fiber.ts`
 
-- **8.3 插件可以是异步的**（未写）
-  - 痛点：7.3 那行 `void repairLog(...)` 的债——同步 `apply` 里发不出 `await`
-  - `apply` 返回 promise 时装载器等它完成，再算下一轮依赖
-  - 装载过程中做 I/O：dsh 里绝大多数真实插件的形态
+- **8.3 [插件可以是异步的](docs/08-services/03-async/01-async.md)** ✅
+  - 痛点：7.3 那行 `void repairLog(...)` 的债——8.2 之后它的前提已经从设计退化成巧合
+  - `apply` 返回 promise 时记进 `inflight`；`ready()` 是显式的汇合点
+  - `provide()` 的唤醒是**同步**的；`ready()` 必须循环（等待期间会长出新 promise）
+  - `Promise.all` 不是 `allSettled`：装配失败当场炸
+  - debug：给可能永远不结束的等待加一个会说话的计时器
 
 - **8.4 Service 类：第三种插件形态**（未写）
   - 为什么服务值得一个基类：注册、卸载、名字三件事总是一起出现
@@ -506,4 +508,4 @@ src/types.ts       # 改：ToolCall、tool role
 - [ ] 阶段 21：骨架对齐
 - [ ] 毕业设计
 
-> **下一步**：阶段 8 进行中（8.1、8.2 完成）。下一节 8.3：插件可以是异步的。
+> **下一步**：阶段 8 进行中（8.1–8.3 完成）。下一节 8.4：Service 类。
