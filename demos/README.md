@@ -99,3 +99,10 @@ npm run demo demos/04-tools/01-write-edit.mjs
 | `07-cordis/03-extend.mjs` | 7.2 | 看得见 / 遮得住 / 改不到；继承是活的；两个经典坑 |
 | `07-cordis/04-who-added-what.mjs` | 7.2 | 树 + 每层各自贡献了什么；兄弟插件互不相见 |
 | `07-cordis/05-assembled.mjs` | 7.3 | 重构后的装配树；两个入口 151→116 / 68→47 行 |
+
+## 阶段 8：服务与 inject
+
+| 脚本 | 对应课 | 看什么 |
+|---|---|---|
+| `08-services/01-provide.mjs` | 8.1 | 兄弟可见、整棵树可见、重名抛错、时序还没解放 |
+| `08-services/02-assembled-flat.mjs` | 8.1 | 真实装配：树变平了，服务表有七项 |

@@ -8,6 +8,7 @@
 
 import { join } from 'node:path'
 import { Context } from './cordis.ts'
+import type { Plugin } from './cordis.ts'
 import { loadConfig } from './config.ts'
 import { accounting, outputBackstop, readOnlyGuard, readOnlyNotice } from './guard.ts'
 import type { Guard } from './pipeline.ts'
@@ -55,7 +56,7 @@ export const SESSION_ROOT = join(process.cwd(), '.dsh-learn', 'sessions')
 
 /** 读配置。它不依赖任何东西，所以排在链条最前面。 */
 export function configPlugin(ctx: Context): void {
-  ctx.config = loadConfig()
+  ctx.provide('config', loadConfig())
 }
 
 /**
@@ -77,12 +78,12 @@ export function promptPlugin(ctx: Context): void {
     order: 0,
     text: () => `现在是 ${new Date().toISOString()}。`,
   })
-  ctx.prompt = prompt
+  ctx.provide('prompt', prompt)
 }
 
 /** 这次装配启用哪些护栏（4.4）。顺序就是执行前钩子的求值顺序。 */
 export function guardsPlugin(ctx: Context): void {
-  ctx.guards = [accounting(ctx.config.accounting), readOnlyGuard(ctx.config.readOnly), outputBackstop()]
+  ctx.provide('guards', [accounting(ctx.config.accounting), readOnlyGuard(ctx.config.readOnly), outputBackstop()])
 }
 
 /**
@@ -93,9 +94,11 @@ export function guardsPlugin(ctx: Context): void {
  */
 export function sessionPlugin(ctx: Context): void {
   const resumeId = resumeTarget()
-  ctx.sessionId = resumeId ?? newSessionId()
-  ctx.logPath = sessionLogPath(SESSION_ROOT, ctx.sessionId)
-  ctx.session = resumeId === undefined ? new Session() : new Session(loadAndRepair(ctx.logPath))
+  const sessionId = resumeId ?? newSessionId()
+  const logPath = sessionLogPath(SESSION_ROOT, sessionId)
+  ctx.provide('sessionId', sessionId)
+  ctx.provide('logPath', logPath)
+  ctx.provide('session', resumeId === undefined ? new Session() : new Session(loadAndRepair(logPath)))
 }
 
 /**
@@ -136,16 +139,17 @@ function loadAndRepair(logPath: string): ReturnType<typeof loadSession>['events'
 /** 把会话挂到磁盘上（6.2–6.3）。它要读 session 和 logPath，所以排在会话后面。 */
 export function persistencePlugin(ctx: Context): void {
   const isNew = ctx.session.events.length === 0
-  ctx.persistence = attachJsonlPersistence(ctx.session, ctx.logPath, isNew
+  ctx.provide('persistence', attachJsonlPersistence(ctx.session, ctx.logPath, isNew
     ? { type: 'session', version: SESSION_FORMAT_VERSION, id: ctx.sessionId, createdAt: Date.now(), cwd: process.cwd() }
-    : undefined)
+    : undefined))
 }
 
 /**
  * 两个入口共用的那份清单，**按依赖顺序**排列。
  *
- * 顺序是手写的，因为兄弟插件互相看不见（7.2），只能靠嵌套让后面的读到前面的。
- * 阶段 8 的 `inject` 会让这个数组的顺序变得无所谓。
+ * 8.1 之后它们是**平铺的兄弟**，不再需要嵌套——服务对整棵树可见。
+ * 但顺序还没解放：装载是同步的，提供者必须先跑，否则使用者读到 undefined。
+ * 8.2 的 `inject` 会让这个数组的顺序变得无所谓。
  */
 export const corePlugins = [
   configPlugin,
@@ -154,3 +158,20 @@ export const corePlugins = [
   sessionPlugin,
   persistencePlugin,
 ] as const
+
+/**
+ * 把共用清单和这个入口自己那一环组装成一个插件。
+ *
+ * 两个入口的差别从此只有一个实参。
+ * @param leaf - 这个入口特有的那一环（交互循环 / 一次性任务）。
+ * @returns 一个插件，装上它就等于装完整个应用。
+ */
+export function assemble(leaf: Plugin<void>): Plugin<void> {
+  return {
+    name: 'app',
+    apply(ctx) {
+      for (const plugin of corePlugins) ctx.plugin(plugin)
+      ctx.plugin(leaf)
+    },
+  }
+}

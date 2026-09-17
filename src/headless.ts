@@ -7,8 +7,8 @@
 // 7.3 之后那 17 行全在 plugins.ts 里，两个入口共用同一份 corePlugins。
 // 这里只剩下这个入口自己特有的东西：读命令行参数，跑一个 turn，退出。
 
-import { Context, nest } from './cordis.ts'
-import { corePlugins } from './plugins.ts'
+import { Context } from './cordis.ts'
+import { assemble } from './plugins.ts'
 import { chatStream } from './llm.ts'
 import { runTool } from './pipeline.ts'
 import { deriveMessages } from './session.ts'
@@ -68,4 +68,4 @@ function headless(ctx: Context): void {
 }
 
 export const root = new Context()
-root.plugin(nest(...corePlugins, headless))
+root.plugin(assemble(headless))

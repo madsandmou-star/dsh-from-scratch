@@ -29,6 +29,55 @@ export class Context {
   readonly children: Context[] = []
 
   /**
+   * 服务表：**整棵树共用一张**（8.1）。
+   *
+   * 只有根真正持有它；子 context 通过原型链拿到的是**同一个 Map**。
+   * 7.2 说过"可变对象不能靠继承共享，否则子的修改会打到父身上"——
+   * 这里**恰恰要那个效果**：任何一层 provide 的服务，整棵树都要看得见。
+   * 所以 {@link extend} 故意不给子一份新的，而 `children` 故意要给。
+   * **同一条语言规则，一次是坑，一次是工具；区别只在于你要不要共享。**
+   */
+  private readonly services = new Map<string, unknown>()
+
+  /** 这棵树的根。服务的访问器都定义在它身上，于是所有后代都读得到。 */
+  private get root(): Context {
+    let node: Context = this
+    while (node.parent !== undefined) node = node.parent
+    return node
+  }
+
+  /**
+   * 提供一个服务：写进整棵树共用的服务表，并让 `ctx.<name>` 读得到。
+   *
+   * 读的那一头靠**在根上定义一个访问器**：每个 context 都以根为原型祖先，
+   * 所以在根上定义一次，整棵树都读得到——**兄弟之间从此看得见了**。
+   * 定义成 getter 而不是直接赋值，是为了让后来的 `provide` 能透明地换掉实现。
+   * @param name - 服务名。
+   * @param value - 服务实例。
+   * @throws 这个名字已经被别人提供过了。**重名是装配错误，不是"后者覆盖前者"。**
+   */
+  provide(name: string, value: unknown): void {
+    const root = this.root
+    if (root.services.has(name)) throw new Error(`服务重名：${name} 已经被提供过了`)
+    root.services.set(name, value)
+    Object.defineProperty(root, name, {
+      get: () => root.services.get(name),
+      configurable: true,      // 阶段 9 要能撤销，所以必须可重新配置
+      enumerable: true,
+    })
+  }
+
+  /**
+   * 列出当前已经提供了哪些服务，按提供顺序。
+   *
+   * 本阶段最有用的 debug 手法：**读到 undefined 时，先看那个服务到底提供了没有**。
+   * @returns 服务名。
+   */
+  listServices(): string[] {
+    return [...this.root.services.keys()]
+  }
+
+  /**
    * 派生一个子 context。
    *
    * `Object.create(this)` 让子**以父为原型**：父身上的一切，子都看得见；
@@ -91,7 +140,7 @@ export class Context {
    * @returns 自有属性名，去掉 `plugin()` 自己塞的那三个。
    */
   ownKeys(): string[] {
-    const internal = new Set(['name', 'parent', 'children'])
+    const internal = new Set(['name', 'parent', 'children', 'services'])
     return Object.getOwnPropertyNames(this).filter(key => !internal.has(key))
   }
 }
@@ -105,32 +154,3 @@ export class Context {
 export type Plugin<T = unknown> =
   | ((ctx: Context, config: T) => void)
   | { name?: string, apply: (ctx: Context, config: T) => void }
-
-/**
- * 按顺序把若干插件**嵌套**装载：后一个是前一个的子插件。
- *
- * 为什么要嵌套而不是并列：7.2 演示过，兄弟插件之间互相看不见。
- * 嵌套之后，后面的插件通过原型链就能读到前面写在 ctx 上的东西。
- *
- * **嵌套的深度就是手写的依赖顺序**——这是阶段 8 之前的过渡办法。
- * 有了服务之后，这些插件会被拍平成兄弟，顺序由 `inject` 算出来。
- *
- * 只接受**不带配置**的插件（`Plugin<void>`）：一条链上没有地方安放每个插件各自的配置。
- * 要带配置就直接 `ctx.plugin(p, config)`。装配插件的配置目前都从 `ctx.config` 上读，
- * 所以这个限制还没咬到人；阶段 11 讲"配置即组合"时，这个组合函数会整个被 loader 取代。
- * @param plugins - 按依赖顺序排列的插件；前面的先装，后面的能看见前面的产出。
- * @returns 一个插件，装上它就等于按顺序装完整条链。
- */
-export function nest(...plugins: Plugin<void>[]): Plugin<void> {
-  const [head, ...rest] = plugins
-  if (head === undefined) return function empty() {}
-  const apply = typeof head === 'function' ? head : head.apply
-  const name = (typeof head === 'function' ? head.name : head.name ?? head.apply.name) || '(匿名)'
-  return {
-    name,
-    apply(ctx) {
-      apply(ctx)
-      if (rest.length > 0) ctx.plugin(nest(...rest))
-    },
-  }
-}

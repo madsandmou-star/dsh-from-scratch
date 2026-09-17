@@ -12,8 +12,8 @@
 // 这里只剩下这个入口自己特有的东西：一个 readline 循环。
 
 import { createInterface } from 'node:readline/promises'
-import { Context, nest } from './cordis.ts'
-import { corePlugins } from './plugins.ts'
+import { Context } from './cordis.ts'
+import { assemble } from './plugins.ts'
 import { chatStream } from './llm.ts'
 import { runTool } from './pipeline.ts'
 import { deriveMessages, summarizeEvent } from './session.ts'
@@ -224,4 +224,4 @@ async function loop(ctx: Context): Promise<void> {
 // 整个入口就这三行：造一个根 context，按顺序装上共用的插件，最后挂自己的循环。
 // 插件树可以打出来看：见 demos/07-cordis/05-assembled.mjs。
 export const root = new Context()
-root.plugin(nest(...corePlugins, cli))
+root.plugin(assemble(cli))

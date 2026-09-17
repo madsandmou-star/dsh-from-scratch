@@ -1,5 +1,9 @@
 // 7.3 重构之后：两个入口共用一份插件清单，装配树能打出来。
 //   node --import tsx demos/07-cordis/05-assembled.mjs
+//
+// 注意：7.3 当时这棵树是**一路往右缩进**的（靠嵌套让后面的插件看见前面的）。
+// 8.1 引入服务之后它变平了，所以下面打出来的是平树。
+// 体量那几个数字不受影响——那才是这一课要量的东西。
 
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -19,11 +23,11 @@ process.env['DSH_LEARN_CONFIG'] = configPath
 process.env['DSH_DEMO_KEY'] = 'demo-key-not-real'
 process.chdir(dir)      // 会话日志写进临时目录
 
-const { Context, nest } = await import('../../src/cordis.ts')
-const { corePlugins } = await import('../../src/plugins.ts')
+const { Context } = await import('../../src/cordis.ts')
+const { assemble } = await import('../../src/plugins.ts')
 
 const root = new Context()
-root.plugin(nest(...corePlugins, function cli(ctx) {
+root.plugin(assemble(function cli(ctx) {
   console.log('=== 链条最后一环看得见什么 ===')
   for (const key of ['config', 'prompt', 'guards', 'session', 'sessionId', 'logPath', 'persistence']) {
     console.log(`  ctx.${key.padEnd(12)} ${ctx[key] === undefined ? '✗ 没有' : '✓'}`)
@@ -38,7 +42,7 @@ function dump(ctx, indent = '') {
   for (const child of ctx.children) dump(child, `${indent}  `)
 }
 
-console.log('\n=== 装配树（嵌套的深度就是手写的依赖顺序）===')
+console.log('\n=== 装配树（7.3 时是嵌套的；8.1 之后是平的）===')
 dump(root)
 
 /** 数一个文件里有多少行有效代码。 */
