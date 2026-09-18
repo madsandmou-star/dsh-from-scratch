@@ -382,8 +382,11 @@ src/types.ts       # 改：ToolCall、tool role
   - `dispose` 按注册的逆序；什么时候该用类形态、什么时候不该
   - 对照 `dsh/vendor/cordis/src/service.ts`
 
-- **8.5 阶段验收**（未写）
-  - 对照 `ctx.llm` / `ctx.tools` / `ctx.sessions` 在 dsh 里的真实样子
+- **8.5 [阶段验收](docs/08-services/05-stage-review/01-stage-review.md)** ✅
+  - 四节课解放了四样东西：可见性、顺序、异步、收尾；每一样之前都由一个把约束
+    藏在结构里的权宜之计顶着（嵌套的树形、数组的顺序、"中间没有 await"、"记得调 close"）
+  - 六条工程判断（同一条规则一次是坑一次是工具、约束要写成代码、默认值看情况正不正常…）
+  - 对照 `dsh/vendor/cordis/`：337 行 vs 2693 行，五行差距全指向阶段 9
 
 ### 阶段 9：可逆注册
 
@@ -495,7 +498,7 @@ src/types.ts       # 改：ToolCall、tool role
 - [x] 阶段 5：system prompt 组装
 - [x] 阶段 6：会话落盘
 - [x] 阶段 7：Cordis 插件与上下文
-- [ ] 阶段 8：服务与 inject
+- [x] 阶段 8：服务与 inject
 - [ ] 阶段 9：可逆注册
 - [ ] 阶段 10：类型化事件与 waterfall
 - [ ] 阶段 11：配置即组合
@@ -511,4 +514,4 @@ src/types.ts       # 改：ToolCall、tool role
 - [ ] 阶段 21：骨架对齐
 - [ ] 毕业设计
 
-> **下一步**：阶段 8 进行中（8.1–8.4 完成）。下一节 8.5：阶段验收。
+> **下一步**：阶段 8 全部完成（8.1–8.5）。进入阶段 9 的第一件事是把它细化到小课级别——`ctx.effect()`、插件卸载即回收、依赖消失就跟着走、5.1 和 6.1 那两个一直没用过的注销函数。
