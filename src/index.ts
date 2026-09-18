@@ -203,8 +203,8 @@ async function loop(ctx: Context): Promise<void> {
   }
 
   rl.close()
-  // 退出前最后刷一次：200ms 的批处理里可能还压着最后几条事件。
-  await ctx.persistence.close()
+  // 收掉所有服务（8.4）：持久化的收尾逻辑在它自己身上，这里只说"该收了"。
+  await ctx.dispose()
 
   // 6.1 之后最有用的 debug 开关：把**日志**和**它的投影**并排打出来。
   // 两边对不上时，错的几乎总是投影规则，而不是日志。

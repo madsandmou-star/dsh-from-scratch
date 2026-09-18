@@ -24,7 +24,7 @@ root.plugin(assemble(function cli(ctx) {
   for (const key of ['config', 'prompt', 'guards', 'session', 'sessionId', 'logPath', 'persistence']) {
     console.log(`  ctx.${key.padEnd(12)} ${ctx[key] === undefined ? '✗' : '✓'}`)
   }
-  ctx.persistence.close()
+  void ctx.dispose()
 }))
 
 console.log('\n=== 装配树：7.3 是一路缩进，现在是平的 ===')

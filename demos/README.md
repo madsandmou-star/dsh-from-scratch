@@ -109,3 +109,4 @@ npm run demo demos/04-tools/01-write-edit.mjs
 | `08-services/03-inject.mjs` | 8.2 | 最坏顺序照样装对；挂起诊断；循环依赖就是"永远等不到" |
 | `08-services/04-shuffled.mjs` | 8.2 | 真实装配随机打乱 20 次，服务集合完全一样 |
 | `08-services/05-async-plugins.mjs` | 8.3 | 等异步依赖；三轮串联；失败当场炸 |
+| `08-services/06-service-class.mjs` | 8.4 | 类插件、静态 inject、逆序收尾、构造窗口、原型链判据 |

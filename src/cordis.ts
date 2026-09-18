@@ -120,6 +120,22 @@ export class Context {
    * @throws 传进来的东西不是插件。
    */
   plugin<T>(plugin: Plugin<T>, config?: T): void {
+    // 类插件（8.4）：`new` 它，构造函数自己会 provide。
+    // 判据是原型链而不是 `typeof`——类在 JS 里就是函数，`typeof` 分不开。
+    if (typeof plugin === 'function' && plugin.prototype instanceof Service) {
+      const Ctor = plugin as new (ctx: Context) => Service
+      const inject = (plugin as { inject?: readonly string[] }).inject ?? []
+      const entry: PendingPlugin = {
+        name: plugin.name || '(匿名服务)',
+        inject,
+        apply: ctx => { new Ctor(ctx) },
+        config,
+        ctx: this,
+      }
+      if (this.missing(inject).length > 0) this.root.pending.push(entry)
+      else this.install(entry)
+      return
+    }
     const apply = typeof plugin === 'function' ? plugin : plugin.apply
     if (typeof apply !== 'function') {
       throw new Error(`不是一个插件：需要函数或带 apply 方法的对象，收到 ${typeof plugin}`)
@@ -171,6 +187,20 @@ export class Context {
       const [entry] = this.root.pending.splice(index, 1)
       // splice 保证只会取到一个；这个断言表达的是那个不变量。
       if (entry !== undefined) this.install(entry)
+    }
+  }
+
+  /**
+   * 按注册的**逆序**收掉所有服务。
+   *
+   * 逆序的理由和 `finally` 里关资源一样：后注册的可能用着先注册的。
+   * 只有实现了 `dispose` 的服务会被叫到，其余的（纯数据服务）跳过。
+   * @throws 任何一个 `dispose` 抛出的错误，原样向上抛。
+   */
+  async dispose(): Promise<void> {
+    const services = [...this.root.services.values()].reverse()
+    for (const value of services) {
+      if (value instanceof Service && value.dispose !== undefined) await value.dispose()
     }
   }
 
@@ -231,12 +261,52 @@ export class Context {
 }
 
 /**
- * 一个插件：要么是函数，要么是带 `apply` 方法的对象。
+ * 一个**服务**：既是插件，也是它自己注册的那个东西（8.4）。
+ *
+ * 7.1 说过 Cordis 接受三种插件形态，第三种就是它——一个 `Service` 子类。
+ * 它把总是一起出现的三件事绑在了一个构造函数里：
+ *
+ * 1. **注册**：`super(ctx, name)` 里就 `provide` 了，不用调用方再写一行。
+ * 2. **命名**：名字是构造参数，实例自己也知道自己叫什么（诊断时有用）。
+ * 3. **持有 ctx**：服务从此能自己用 ctx，不用调用方把东西喂进来。
+ *
+ * 加上一个可选的 {@link dispose}：**谁申请的资源谁负责收**。
+ * 阶段 9 会把这条推广到所有注册（监听器、定时器、临时文件），而不只是服务。
+ */
+export abstract class Service {
+  /** 这个服务注册用的名字。 */
+  readonly name: string
+
+  /**
+   * 注册自己。
+   *
+   * 注意 `provide` 发生在**构造函数里**，也就是子类的字段还没初始化完的时候。
+   * 所以别在构造期间去读 `ctx.<自己的名字>`——那时拿到的是个半成品。
+   * dsh 有一个 `Service.init` 符号专门放"构造完之后再跑"的逻辑。
+   * @param ctx - 这个服务所属的 context。
+   * @param name - 注册用的名字。
+   */
+  constructor(protected readonly ctx: Context, name: string) {
+    this.name = name
+    ctx.provide(name, this)
+  }
+
+  /**
+   * 收尾。整棵树被 {@link Context.dispose} 时按**注册的逆序**调用。
+   *
+   * 逆序是因为后注册的可能用着先注册的：先收后来的，再收更早的。
+   */
+  dispose?(): void | Promise<void>
+}
+
+/**
+ * 一个插件：要么是函数，要么是带 `apply` 方法的对象，要么是一个 {@link Service} 子类。
  *
  * dsh 的 Cordis 还接受第三种——一个 `Service` 子类（阶段 8 才讲）。
  * 对象形态的好处是能带 `name`：函数插件靠函数名，而打包工具可能把函数名改掉。
  */
 export type Plugin<T = unknown> =
+  | (new (ctx: Context) => Service)
   | ((ctx: Context, config: T) => void | Promise<void>)
   | {
     name?: string

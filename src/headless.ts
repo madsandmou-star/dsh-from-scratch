@@ -54,7 +54,7 @@ async function runOnce(ctx: Context, input: string): Promise<void> {
     }
   }
 
-  await ctx.persistence.close()
+  await ctx.dispose()
 }
 
 /** 这条链的最后一环：读命令行参数，跑一次。 */

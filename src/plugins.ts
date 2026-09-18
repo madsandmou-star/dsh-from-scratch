@@ -7,7 +7,7 @@
 // 只认识自己那一样东西，以及它需要从 ctx 上读什么。
 
 import { join } from 'node:path'
-import { Context } from './cordis.ts'
+import { Context, Service } from './cordis.ts'
 import type { Plugin } from './cordis.ts'
 import { loadConfig } from './config.ts'
 import { accounting, outputBackstop, readOnlyGuard, readOnlyNotice } from './guard.ts'
@@ -46,8 +46,8 @@ declare module './cordis.ts' {
     sessionId: string
     /** 日志文件路径（{@link sessionPlugin} 提供）。 */
     logPath: string
-    /** 刷盘与关闭的手柄（{@link persistencePlugin} 提供）。 */
-    persistence: SessionPersistence
+    /** 刷盘与收尾（{@link PersistenceService} 提供）。 */
+    persistence: PersistenceService
   }
 }
 
@@ -158,16 +158,41 @@ async function loadAndRepair(logPath: string): Promise<ReturnType<typeof loadSes
   return loaded.events
 }
 
-/** 把会话挂到磁盘上（6.2–6.3）。它要读 session 和 logPath，所以 inject 里写着它俩。 */
-export const persistencePlugin = {
-  name: 'persistencePlugin',
-  inject: ['session', 'logPath', 'sessionId'],
-  apply(ctx: Context): void {
+/**
+ * 把会话挂到磁盘上（6.2–6.3）。
+ *
+ * 这是课程里第一个 {@link Service} 子类（8.4），因为它是唯一一个**要收尾**的服务：
+ * 退出前得把 200ms 批处理里压着的最后几条刷下去。
+ * 在 8.4 之前，两个入口各自记得调一次 `close()`——那是 7.1 那个痛点的小型复现。
+ * 现在收尾的知识在服务自己身上，入口只说"该收了"。
+ */
+export class PersistenceService extends Service {
+  /** 类插件的依赖声明写成静态字段。dsh 也是这么写的。 */
+  static readonly inject = ['session', 'logPath', 'sessionId']
+
+  private readonly handle: SessionPersistence
+
+  /** @param ctx - 这个服务自己的 context。 */
+  constructor(ctx: Context) {
+    super(ctx, 'persistence')
     const isNew = ctx.session.events.length === 0
-    ctx.provide('persistence', attachJsonlPersistence(ctx.session, ctx.logPath, isNew
+    this.handle = attachJsonlPersistence(ctx.session, ctx.logPath, isNew
       ? { type: 'session', version: SESSION_FORMAT_VERSION, id: ctx.sessionId, createdAt: Date.now(), cwd: process.cwd() }
-      : undefined))
-  },
+      : undefined)
+  }
+
+  /**
+   * 把此刻之前的所有事件写下去并 fsync（6.3 的检查点调它）。
+   * @returns 全部落盘后 resolve。
+   */
+  flush(): Promise<void> {
+    return this.handle.flush()
+  }
+
+  /** 收尾：取消订阅，最后刷一次。整棵树 dispose 时自动被调到。 */
+  async dispose(): Promise<void> {
+    await this.handle.close()
+  }
 }
 
 /**
@@ -182,7 +207,7 @@ export const corePlugins = [
   promptPlugin,
   guardsPlugin,
   sessionPlugin,
-  persistencePlugin,
+  PersistenceService,
 ] as const
 
 /**

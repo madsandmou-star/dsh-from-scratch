@@ -374,9 +374,12 @@ src/types.ts       # 改：ToolCall、tool role
   - `Promise.all` 不是 `allSettled`：装配失败当场炸
   - debug：给可能永远不结束的等待加一个会说话的计时器
 
-- **8.4 Service 类：第三种插件形态**（未写）
-  - 为什么服务值得一个基类：注册、卸载、名字三件事总是一起出现
-  - `super(ctx, name)` 做了什么
+- **8.4 [Service 类：第三种插件形态](docs/08-services/04-service-class/01-service-class.md)** ✅
+  - 痛点：两个入口各自记得 `close()`——7.1 那个痛点的小型复现，这次重复的是收尾
+  - `super(ctx, name)` 一行做三件事：注册、命名、拿到 ctx；再加一个可选的 `dispose()`
+  - 判据是原型链不是 `typeof`：类在 JS 里就是函数
+  - `provide` 发生在 `super()` 里，构造期间读自己拿到半成品（dsh 的 `Service.init`）
+  - `dispose` 按注册的逆序；什么时候该用类形态、什么时候不该
   - 对照 `dsh/vendor/cordis/src/service.ts`
 
 - **8.5 阶段验收**（未写）
@@ -508,4 +511,4 @@ src/types.ts       # 改：ToolCall、tool role
 - [ ] 阶段 21：骨架对齐
 - [ ] 毕业设计
 
-> **下一步**：阶段 8 进行中（8.1–8.3 完成）。下一节 8.4：Service 类。
+> **下一步**：阶段 8 进行中（8.1–8.4 完成）。下一节 8.5：阶段验收。

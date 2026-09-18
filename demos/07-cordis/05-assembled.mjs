@@ -32,7 +32,7 @@ root.plugin(assemble(function cli(ctx) {
   for (const key of ['config', 'prompt', 'guards', 'session', 'sessionId', 'logPath', 'persistence']) {
     console.log(`  ctx.${key.padEnd(12)} ${ctx[key] === undefined ? '✗ 没有' : '✓'}`)
   }
-  ctx.persistence.close()
+  void ctx.dispose()
 }))
 
 /** 树 + 每层的自有属性。 */

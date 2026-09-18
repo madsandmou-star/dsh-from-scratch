@@ -25,7 +25,7 @@ function assembleWith(plugins) {
     name: 'app',
     apply(ctx) {
       for (const plugin of plugins) ctx.plugin(plugin)
-      ctx.plugin({ name: 'leaf', inject: ['persistence'], apply(c) { c.persistence.close() } })
+      ctx.plugin({ name: 'leaf', inject: ['persistence'], apply(c) { void c.dispose() } })
     },
   })
   return { services: root.listServices(), pending: root.pendingPlugins(), tree: root.inspect() }
