@@ -51,6 +51,14 @@ export class Context {
    */
   private readonly inflight: Promise<void>[] = []
 
+  /**
+   * 这个 context 上注册过的、卸载时要回收的东西（9.1）。
+   *
+   * **每个 context 一份**（和 `children` 一样，`plugin()` 里显式给了新的）：
+   * 回收的单位是"一个插件"，所以账必须记在插件自己的 context 上。
+   */
+  private readonly disposables: Disposer[] = []
+
   /** 这棵树的根。服务的访问器都定义在它身上，于是所有后代都读得到。 */
   private get root(): Context {
     let node: Context = this
@@ -191,17 +199,50 @@ export class Context {
   }
 
   /**
-   * 按注册的**逆序**收掉所有服务。
+   * 申请一样资源，同时把归还它的方式登记下来（9.1）。
+   *
+   * 这是这门课里"可逆注册"的全部机制：**申请和归还写在同一个表达式里，
+   * 中间隔不进任何东西**。忘不了，因为它们是同一个动作的两半。
+   *
+   * ```ts
+   * ctx.effect(() => {
+   *   const timer = setInterval(tick, 200)
+   *   return () => { clearInterval(timer) }
+   * })
+   * ```
+   *
+   * 已经返回注销函数的 API（5.1 的 `prompt.register()`、6.1 的 `session.on()`）
+   * 直接套一层就行：`ctx.effect(() => prompt.register(section))`。
+   * **那些返回值从第一天起就是为这一刻准备的。**
+   * @param execute - 申请资源；返回归还它的函数，没有资源要还就什么都不返回。
+   * @returns 手动归还它的函数。幂等：调多少次都只真正归还一次。
+   */
+  effect(execute: () => Disposer | void): Disposer {
+    const disposer = execute()
+    if (disposer === undefined) return () => {}
+    let disposed = false
+    const wrapped: Disposer = async () => {
+      // 幂等很重要：手动调过一次之后，插件卸载时还会再调一次。
+      // 不挡住的话，clearInterval 无所谓，而"关一个已经关了的文件句柄"会抛。
+      if (disposed) return
+      disposed = true
+      await disposer()
+    }
+    this.disposables.push(wrapped)
+    return wrapped
+  }
+
+  /**
+   * 收掉这棵子树上注册过的一切，按**逆序**（9.1）。
    *
    * 逆序的理由和 `finally` 里关资源一样：后注册的可能用着先注册的。
-   * 只有实现了 `dispose` 的服务会被叫到，其余的（纯数据服务）跳过。
-   * @throws 任何一个 `dispose` 抛出的错误，原样向上抛。
+   * 先收子树再收自己，同理——子插件用着父提供的东西。
+   * @throws 任何一个归还函数抛出的错误，原样向上抛。
    */
   async dispose(): Promise<void> {
-    const services = [...this.root.services.values()].reverse()
-    for (const value of services) {
-      if (value instanceof Service && value.dispose !== undefined) await value.dispose()
-    }
+    // 先收子树，再收自己：后装上的先收，和 effect 的逆序是同一条理由。
+    for (const child of [...this.children].reverse()) await child.dispose()
+    for (const disposer of this.disposables.splice(0).reverse()) await disposer()
   }
 
   /**
@@ -289,12 +330,14 @@ export abstract class Service {
   constructor(protected readonly ctx: Context, name: string) {
     this.name = name
     ctx.provide(name, this)
+    // 9.1：收尾也是一个 effect。**不用任何人记得调**——这个 context 被收时它自然被叫到。
+    ctx.effect(() => () => this.dispose?.())
   }
 
   /**
-   * 收尾。整棵树被 {@link Context.dispose} 时按**注册的逆序**调用。
+   * 收尾。这个服务所在的 context 被收掉时自动调用（9.1 起登记成 effect）。
    *
-   * 逆序是因为后注册的可能用着先注册的：先收后来的，再收更早的。
+   * 子类实现它就行，不用自己去登记。
    */
   dispose?(): void | Promise<void>
 }
@@ -325,6 +368,13 @@ export type Plugin<T = unknown> =
      */
     apply: (ctx: Context, config: T) => void | Promise<void>
   }
+
+/**
+ * 归还一样资源的函数（9.1）。
+ *
+ * 同步异步都行：关一个定时器是同步的，关一个文件句柄是异步的。
+ */
+export type Disposer = () => void | Promise<void>
 
 /** 挂在队列里等依赖的一个插件。 */
 interface PendingPlugin {

@@ -110,3 +110,10 @@ npm run demo demos/04-tools/01-write-edit.mjs
 | `08-services/04-shuffled.mjs` | 8.2 | 真实装配随机打乱 20 次，服务集合完全一样 |
 | `08-services/05-async-plugins.mjs` | 8.3 | 等异步依赖；三轮串联；失败当场炸 |
 | `08-services/06-service-class.mjs` | 8.4 | 类插件、静态 inject、逆序收尾、构造窗口、原型链判据 |
+
+## 阶段 9：可逆注册
+
+| 脚本 | 对应课 | 看什么 |
+|---|---|---|
+| `09-effects/01-effect.mjs` | 9.1 | 自己记账 vs `ctx.effect`；逆序；幂等；服务收尾也是 effect |
+| `09-effects/02-prompt-effects.mjs` | 9.1 | promptPlugin 塞的七样东西，整个撤回去 |

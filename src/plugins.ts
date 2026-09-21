@@ -73,18 +73,20 @@ export const promptPlugin = {
   inject: ['config'],
   apply(ctx: Context): void {
     const prompt = new PromptRegistry()
-    prompt.variable('cwd', () => process.cwd())
-    prompt.variable('model', () => ctx.config.model)
-    prompt.register(identitySection)
-    prompt.register({ name: PERSONA_SECTION, order: PERSONA_ORDER, text: ctx.config.systemPrompt })
-    prompt.register(toolGuidanceSection)
-    prompt.register(readOnlyNotice(ctx.config.readOnly))
-    prompt.context({
+    ctx.provide('prompt', prompt)
+    // 每一处注册都过一遍 ctx.effect（9.1）：5.1 里这些方法从第一天就返回注销函数，
+    // 到这里才第一次被接住。这个插件被卸载时，它塞进去的七样东西按逆序自动撤回。
+    ctx.effect(() => prompt.variable('cwd', () => process.cwd()))
+    ctx.effect(() => prompt.variable('model', () => ctx.config.model))
+    ctx.effect(() => prompt.register(identitySection))
+    ctx.effect(() => prompt.register({ name: PERSONA_SECTION, order: PERSONA_ORDER, text: ctx.config.systemPrompt }))
+    ctx.effect(() => prompt.register(toolGuidanceSection))
+    ctx.effect(() => prompt.register(readOnlyNotice(ctx.config.readOnly)))
+    ctx.effect(() => prompt.context({
       name: 'time',
       order: 0,
       text: () => `现在是 ${new Date().toISOString()}。`,
-    })
-    ctx.provide('prompt', prompt)
+    }))
   },
 }
 

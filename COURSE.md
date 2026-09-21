@@ -390,11 +390,31 @@ src/types.ts       # 改：ToolCall、tool role
 
 ### 阶段 9：可逆注册
 
-> **痛点**：卸载一个功能时，它注册过的监听器、定时器、临时文件没人收。
+> **目标**：让"装上去的东西能撤下来"成为机制，而不是每个插件自己的自觉。
 >
-> **引入**：`ctx.effect()` / `ctx.on()` 返回 disposer，插件卸载即回收；HMR 因此才成立。
->
-> **对照**：[docs/cordis-tutorial/02-lifecycle-and-effects.md](dsh/docs/cordis-tutorial/02-lifecycle-and-effects.md)、"registrations are effects" 这条硬规矩。
+> **产出**：插件卸载时，它注册过的一切（服务、prompt 段落、监听器、定时器）按逆序自动回收。
+
+#### 课程
+
+- **9.1 [注册了就撤不回来](docs/09-effects/01-effect/01-effect.md)** ✅
+  - 痛点复现：`promptPlugin` 注册了 7 样东西，7 个注销函数全被丢掉了
+  - 自己维护一个数组行不行：样板、容易漏、顺序要自己管、重复调用会出事
+  - 解法：`ctx.effect(() => { 申请; return 归还 })`——**申请和归还绑成一个不可分割的动作**
+  - 逆序、幂等，以及为什么 5.1/6.1 那些 `register()` 从第一天就返回注销函数
+  - 对照 [docs/cordis-tutorial/02-lifecycle-and-effects.md](dsh/docs/cordis-tutorial/02-lifecycle-and-effects.md)、`dsh/vendor/cordis/src/fiber.ts` 的 `effect()`
+
+- **9.2 卸载一个插件**（未写）
+  - 痛点：`ctx.dispose()` 是把整棵树收掉，而 HMR 要的是"只收这一个"
+  - `ctx.plugin()` 返回 disposer；卸载一棵子树：先收子插件，再收自己的 effect
+  - 卸载之后这个 ctx 就作废了：再往上注册要报错
+
+- **9.3 依赖消失就跟着走**（未写）
+  - 痛点：撤销一个服务，依赖它的插件还攥着一个已经无效的东西
+  - 服务被撤销 → 依赖它的插件自动卸载 → 服务回来 → 重新装上
+  - 这是 HMR 的全部地基
+
+- **9.4 阶段验收**（未写）
+  - 对照 `dsh/vendor/cordis/src/fiber.ts`、"Registrations are effects" 这条硬规矩
 
 ### 阶段 10：类型化事件与 waterfall
 
@@ -514,4 +534,4 @@ src/types.ts       # 改：ToolCall、tool role
 - [ ] 阶段 21：骨架对齐
 - [ ] 毕业设计
 
-> **下一步**：阶段 8 全部完成（8.1–8.5）。进入阶段 9 的第一件事是把它细化到小课级别——`ctx.effect()`、插件卸载即回收、依赖消失就跟着走、5.1 和 6.1 那两个一直没用过的注销函数。
+> **下一步**：阶段 9 进行中（9.1 完成）。下一节 9.2：卸载一个插件。
