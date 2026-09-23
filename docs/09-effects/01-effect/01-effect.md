@@ -102,6 +102,15 @@ export type Disposer = () => void | Promise<void>
  */
 private readonly disposables: Disposer[] = []
 
+// 而"每个一份"**不能只靠这个字段初始化器**——`extend()` 走的是 `Object.create`，
+// 它不跑初始化器。所以 `install()` 里必须和 `children` 一样显式给一个新数组：
+const child = entry.ctx.extend({
+  name: entry.name,
+  parent: entry.ctx as Context,
+  children: [] as Context[],
+  disposables: [] as Disposer[],     // ← 漏了它，所有插件的 effect 记在同一个账本上
+})
+
 effect(execute: () => Disposer | void): Disposer {
   const disposer = execute()
   if (disposer === undefined) return () => {}
@@ -202,7 +211,29 @@ this.disposables.splice(0).reverse()
 
 这个手法和 8.3 的 `ready()` 里那个 `inflight.splice(0)` 是同一个：**先取走，再处理**。
 
-### ④ 服务的收尾也变成了 effect
+### ④ 这个字段差点就写错了：7.2 那个坑第三次出现
+
+`disposables` 是一个**每层一份**的可变数组，而 `services` / `pending` / `inflight` 是**整棵树一份**的。它们都写成了字段初始化器，但 `extend()` 用 `Object.create` 派生子 context，**初始化器一次都不会跑**——所以字段初始化器只对根有效，子 context 拿到的永远是父那一份。
+
+于是"每层一份"必须在 `install()` 里显式给：
+
+```ts
+children: [] as Context[],
+disposables: [] as Disposer[],
+```
+
+漏掉任何一个的症状完全不同，但都很隐蔽：
+
+| 漏掉 | 症状 |
+|---|---|
+| `children` | 插件树塌成一层（7.2 演示过） |
+| `disposables` | **所有插件的 effect 记在同一个账本上，卸载一个等于卸载全部** |
+
+第二个尤其阴：小例子里只有一个 effect 时**完全看不出来**，要等到"只想卸载 A，结果 B 也被收了"才暴露——而那正是 9.2 整课的前提。
+
+> 同一条规则（`Object.create` 不跑字段初始化器）在这门课里已经咬了三次：7.2 的 `children`、8.1 故意利用它共享 `services`、9.1 的 `disposables`。**每次加一个新字段，都要先问一句：它该是整棵树一份，还是每层一份？**
+
+### ⑤ 服务的收尾也变成了 effect
 
 `Service` 的构造函数多了一行：
 

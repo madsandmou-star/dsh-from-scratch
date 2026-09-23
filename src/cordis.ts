@@ -54,8 +54,10 @@ export class Context {
   /**
    * 这个 context 上注册过的、卸载时要回收的东西（9.1）。
    *
-   * **每个 context 一份**（和 `children` 一样，`plugin()` 里显式给了新的）：
+   * **每个 context 一份**（和 `children` 一样，{@link install} 里显式给了新的）：
    * 回收的单位是"一个插件"，所以账必须记在插件自己的 context 上。
+   * 靠字段初始化器是不够的——`extend()` 走 `Object.create`，不跑初始化器，
+   * 子 ctx 会顺着原型链用到父的那一份（7.2 讲过的那个坑）。
    */
   private readonly disposables: Disposer[] = []
 
@@ -162,8 +164,15 @@ export class Context {
    * @param entry - 待装的插件。
    */
   private install(entry: PendingPlugin): void {
-    // children 必须显式给一个新数组——见它的字段注释。
-    const child = entry.ctx.extend({ name: entry.name, parent: entry.ctx as Context, children: [] as Context[] })
+    // children 和 disposables 都必须显式给一个新数组——见它们的字段注释。
+    // 漏掉任何一个，子 ctx 都会顺着原型链用到父的那一份：children 漏了树会塌成一层，
+    // disposables 漏了**所有插件的 effect 会记在同一个账本上**，卸载一个等于卸载全部。
+    const child = entry.ctx.extend({
+      name: entry.name,
+      parent: entry.ctx as Context,
+      children: [] as Context[],
+      disposables: [] as Disposer[],
+    })
     entry.ctx.children.push(child)
     // **异常不拦**：装配失败必须当场炸，而不是"这一项被跳过了"。
     const result = entry.apply(child, entry.config)
