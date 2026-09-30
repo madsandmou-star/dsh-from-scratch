@@ -41,5 +41,5 @@ export async function* parseSse(stream: ReadableStream<Uint8Array>): AsyncGenera
 
   // 走到这里说明流结束了。buffer 里如果还有东西，那是一截**没有终止符**的残片——
   // 按 SSE 规范它还不构成一个事件，所以不能冲刷出去当正常数据用。
-  // 阶段 2.4 会讲 dsh 为什么把"没等到 [DONE] 就结束"直接当成错误。
+  // 阶段 2.4 会讲 dsh 为什么把"没等到终止标记就结束"直接当成错误。
 }

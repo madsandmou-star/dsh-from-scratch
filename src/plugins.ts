@@ -18,7 +18,7 @@ import {
   newSessionId, repairLog, sessionLogPath,
 } from './persistence.ts'
 import type { SessionPersistence } from './persistence.ts'
-import { PERSONA_SECTION, PERSONA_ORDER, PromptRegistry, identitySection } from './system-prompt.ts'
+import { PERSONA_PREFIX_SECTION, PERSONA_ORDER, PromptRegistry, identitySection } from './system-prompt.ts'
 import { toolGuidanceSection } from './tool.ts'
 import type { ResolvedConfig } from './config.ts'
 
@@ -79,7 +79,7 @@ export const promptPlugin = {
     ctx.effect(() => prompt.variable('cwd', () => process.cwd()))
     ctx.effect(() => prompt.variable('model', () => ctx.config.model))
     ctx.effect(() => prompt.register(identitySection))
-    ctx.effect(() => prompt.register({ name: PERSONA_SECTION, order: PERSONA_ORDER, text: ctx.config.systemPrompt }))
+    ctx.effect(() => prompt.register({ name: PERSONA_PREFIX_SECTION, order: PERSONA_ORDER, text: ctx.config.systemPrompt }))
     ctx.effect(() => prompt.register(toolGuidanceSection))
     ctx.effect(() => prompt.register(readOnlyNotice(ctx.config.readOnly)))
     ctx.effect(() => prompt.context({

@@ -222,7 +222,7 @@ export class PromptRegistry {
    * 一个管要不要发那条运行时快照。dsh 的 persona preset 把两者都暴露成配置项。
    * @returns 恢复动态上下文的函数。
    */
-  suppressContext(): () => void {
+  suppressRuntimeContext(): () => void {
     this.contextSuppressed = true
     return () => { this.contextSuppressed = false }
   }
@@ -287,9 +287,14 @@ export class PromptRegistry {
  * 靠的就是**两边用同一个名字**。名字对不上，`替换()` 就变成了"又加了一段"，
  * 于是模型会同时读到两个互相打架的人设。
  */
-export const PERSONA_SECTION = 'deployment:persona'
+export const PERSONA_PREFIX_SECTION = 'deployment:persona-prefix'
 
-/** persona 槽位的顺序：模型读到的第一段实质内容。 */
+/**
+ * persona 槽位的顺序：模型读到的第一段实质内容。
+ *
+ * dsh 里没有这个常量：各段的顺序统一从一张中央表里查（`getSectionOrder('DEPLOYMENT_PERSONA_PREFIX')`），
+ * 值同样是 0。我们的段落少，先各写各的数字，5.4 讲这张表为什么值得有。
+ */
 export const PERSONA_ORDER = 0
 
 /** harness 自己的身份。它排在最前面，因为它是"你是谁"，其余都是"你该怎么干活"。 */

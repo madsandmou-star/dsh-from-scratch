@@ -114,7 +114,7 @@ export DEEPSEEK_API_KEY=sk-...
 npm run dev                  # 等价于 node --import tsx src/index.ts
 npm run dev -- --resume      # 续上这个目录下最近一次会话（阶段 6.2）
 
-# 5. 跑演示（35 个，全都不需要 key：用的是假模型服务器）
+# 5. 跑演示（50 个，全都不需要 key：用的是假模型服务器）
 npm run demo demos/02-streaming/01-sse-framing.mjs     # 分帧器抗五种切法
 npm run demo demos/04-tools/04-red-green.mjs           # agent 自己修好一个测试
 npm run demo demos/06-session/06-checkpoints.mjs       # 工具观测自己这次调用有没有落盘

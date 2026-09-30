@@ -100,7 +100,7 @@ export class PromptRegistry {
 ```ts
 const prompt = new PromptRegistry()
 prompt.register(identitySection)
-prompt.register({ name: 'deployment:persona', order: 0, text: config.systemPrompt })
+prompt.register({ name: 'deployment:persona-prefix', order: 0, text: config.systemPrompt })
 prompt.register(toolGuidanceSection)
 prompt.register(readOnlyNotice(config.readOnly))
 
@@ -154,7 +154,7 @@ if (this.sections.has(section.name)) throw new Error(`system prompt 段落重名
 ```
 ── ① 默认装配（只读关） ──
    -100  harness:identity     56 ch
-      0  deployment:persona   33 ch
+      0  deployment:persona-prefix   33 ch
     100  tools:guidance       214 ch
     110  guard:read-only      0 ch（blank，会被丢掉）
   → 拼出来共 307 ch
@@ -162,7 +162,7 @@ if (this.sections.has(section.name)) throw new Error(`system prompt 段落重名
 
 用 `-100 / 0 / 100` 而不是 `1 / 2 / 3`，是为了**将来在任意两段之间插进新段时不用重新编号**。这个梯子是从 dsh 直接抄的，因为它本身就是经验。
 
-`0` 留给"部署方给的 persona"也是有讲究的：**它是模型读到的第一段**（负数排在它前面的只有 harness 身份），所以最容易被模型当成"我是谁"。5.4 会讲 dsh 为什么给这个位置起了个具名常量 `PERSONA_SECTION`。
+`0` 留给"部署方给的 persona"也是有讲究的：**它是模型读到的第一段**（负数排在它前面的只有 harness 身份），所以最容易被模型当成"我是谁"。5.4 会讲 dsh 为什么给这个位置起了个具名常量 `PERSONA_PREFIX_SECTION`。
 
 ### `text` 可以是函数：条件性段落
 
@@ -237,7 +237,7 @@ DSH_SHOW_PROMPT=1 npm run dev
 ```
 [system prompt inventory]
    -100  harness:identity  (56 ch)
-      0  deployment:persona  (28 ch)
+      0  deployment:persona-prefix  (28 ch)
     100  tools:guidance  (214 ch)
     110  guard:read-only  (0 ch)
 --- 拼出来的 system prompt（302 ch）---

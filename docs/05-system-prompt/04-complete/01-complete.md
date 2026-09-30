@@ -29,7 +29,7 @@
 
 ```
 === ① 痛点：想换掉 persona，但只能"push" ===
-  ❌ system prompt 段落重名：deployment:persona
+  ❌ system prompt 段落重名：deployment:persona-prefix
 ```
 
 5.1 那条"重名抛错"在这里挡住了路。**换个名字加一段呢？** 那模型会同时读到两个人设，而且都是"你是……"，它得自己猜听谁的。
@@ -86,7 +86,7 @@ assemble(): string {
 外加一个和 `complete` **正交**的开关：
 
 ```ts
-suppressContext(): () => void {
+suppressRuntimeContext(): () => void {
   this.contextSuppressed = true
   return () => { this.contextSuppressed = false }
 }
@@ -95,7 +95,7 @@ suppressContext(): () => void {
 以及一个导出的常量——它比上面所有代码都重要：
 
 ```ts
-export const PERSONA_SECTION = 'deployment:persona'
+export const PERSONA_PREFIX_SECTION = 'deployment:persona-prefix'
 export const PERSONA_ORDER = 0
 ```
 
@@ -104,14 +104,14 @@ export const PERSONA_ORDER = 0
 换掉 persona：
 
 ```ts
-const restore = prompt.replace({ name: PERSONA_SECTION, order: PERSONA_ORDER, text: '你在帮一个前端工程师读后端代码。' })
+const restore = prompt.replace({ name: PERSONA_PREFIX_SECTION, order: PERSONA_ORDER, text: '你在帮一个前端工程师读后端代码。' })
 ```
 
 一个最小的 subagent：
 
 ```ts
-prompt.replace({ name: PERSONA_SECTION, order: PERSONA_ORDER, complete: true, text: '你只做一件事：把给你的文件总结成三句话。' })
-prompt.suppressContext()
+prompt.replace({ name: PERSONA_PREFIX_SECTION, order: PERSONA_ORDER, complete: true, text: '你只做一件事：把给你的文件总结成三句话。' })
+prompt.suppressRuntimeContext()
 ```
 
 ### 产出
@@ -119,7 +119,7 @@ prompt.suppressContext()
 ```
 ── subagent 的装配 ──
    -100  harness:identity      111 ch  ← 未生效
-      0  deployment:persona     20 ch
+      0  deployment:persona-prefix     20 ch
     100  tools:guidance        214 ch  ← 未生效
   system prompt（20 ch）：
     你只做一件事：把给你的文件总结成三句话。
@@ -148,13 +148,13 @@ prompt.suppressContext()
 `replace` 能工作，前提是**两边用的是同一个名字**。所以名字不能各处各写一遍字符串字面量，得是一个导出的常量：
 
 ```ts
-prompt.register({ name: PERSONA_SECTION, ... })      // 装配时
-prompt.replace({ name: PERSONA_SECTION, ... })      // preset 覆盖时
+prompt.register({ name: PERSONA_PREFIX_SECTION, ... })      // 装配时
+prompt.replace({ name: PERSONA_PREFIX_SECTION, ... })      // preset 覆盖时
 ```
 
 写错一个字母，`replace` 会抛"没有这个段落可替换"——**这比静默地多出一段人设好得多**。
 
-dsh 把这条写在常量的 JSDoc 里（它的常量叫 `PERSONA_PREFIX_SECTION`，值是 `'deployment:persona-prefix'`），说得很清楚：
+dsh 把这条写在常量的 JSDoc 里（名字和值都和我们的一样——我们就是照它起的名），说得很清楚：
 
 > Exported because a composition can replace this slot — an agent preset shadows the deployment's persona with its own — and **both sides naming the same section is what makes the replacement work rather than duplicate.**
 
@@ -180,7 +180,7 @@ ctx.effect(() => ctx.systemPrompt.section({
 
 和我们比，dsh 0.2 多了两处：
 
-- **persona 是两个槽位**：前缀（order 0，排在所有工具说明前面）和后缀（order 10200，排在最后）。前缀是"你是谁"，后缀是"最后再叮嘱一句"。
+- **persona 是两个槽位**：前缀（order 0，排在所有工具说明前面）和后缀（order 10200，排在最后）。前缀是"你是谁"，后缀是"最后再叮嘱一句"。我们只做了前缀这一个，所以名字叫 `PERSONA_PREFIX_SECTION`——将来补后缀时不用改名。
 - **order 不再是各插件自己写的数字**，而是 `getSectionOrder('名字')` 去一张中央表（`dsh/packages/core/system-prompt/src/index.ts` 的 `SECTION_ORDERS`）里查：`HARNESS_IDENTITY: -1000`、`DEPLOYMENT_PERSONA_PREFIX: 0`、`TOOL_BASH: 1000`、`TOOL_EDIT: 1300`……`DEPLOYMENT_PERSONA_SUFFIX: 10200`。各插件只说"我是哪一类"，**谁排在谁前面由一个地方决定**，不会出现两个插件各自挑了同一个数字。
 
 **"槽位"就是一个约定好名字的位置。** 它不是语言特性，就是一个大家都同意去写的字符串——而把它变成导出常量，是让这个约定**能被编译器和 IDE 帮忙检查**的唯一办法。
@@ -205,7 +205,7 @@ dsh 的 JSDoc 是同一句话：
 
 ```
 === ④ 两段都说"我是全部" ===
-  ❌ 同时有多段声明了"完整"：deployment:persona、tools:guidance
+  ❌ 同时有多段声明了"完整"：deployment:persona-prefix、tools:guidance
 ```
 
 **没有任何规则能决定听谁的。** 按 order 取第一个？那是随便挑一个然后假装有道理。按注册顺序？那让结果取决于插件加载顺序，是这门课一路在避免的那种脆弱。
@@ -218,7 +218,7 @@ dsh 的 JSDoc 是同一句话：
 
 ```
    -100  harness:identity      111 ch  ← 未生效
-      0  deployment:persona     20 ch
+      0  deployment:persona-prefix     20 ch
     100  tools:guidance        214 ch  ← 未生效
 ```
 
@@ -226,10 +226,10 @@ dsh 的 JSDoc 是同一句话：
 
 同一条也适用于空段落——5.1 的 `生效: false` 现在统一表示"这一段不会出现在最终 prompt 里"，不管原因是空还是被 `complete` 顶掉了。
 
-## `complete` 和 `suppressContext` 是两个开关
+## `complete` 和 `suppressRuntimeContext` 是两个开关
 
 ```
-=== ⑤ 一个最小的 subagent：complete + suppressContext ===
+=== ⑤ 一个最小的 subagent：complete + suppressRuntimeContext ===
   system prompt（20 ch）：
     你只做一件事：把给你的文件总结成三句话。
   运行时快照：（无）
@@ -251,7 +251,7 @@ complete: z.boolean().default(false),
 includeRuntimeContext: z.boolean().default(true),
 ```
 
-（后一个在 dsh 里对应的方法叫 `suppressRuntimeContext()`，就是我们的 `suppressContext()`。）
+（后一个在 dsh 里对应的方法叫 `suppressRuntimeContext()`，就是我们的 `suppressRuntimeContext()`。）
 
 **两个正交的关注点就该是两个开关。** 把它们合成一个"精简模式"会让第二、三行那两种组合变得不可表达。
 

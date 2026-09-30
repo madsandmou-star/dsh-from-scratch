@@ -321,4 +321,4 @@ system prompt 变了怎么办？同文件的 `SystemPromptProjection` 注释：
 
 ---
 
-下一课：**5.4 谁能替换整个 prompt** —— 到现在为止，段落只能往上加。但有些场景需要"这一段就是全部"：一个跑固定任务的 subagent 不需要通用的编码助手身份。dsh 有 `complete: true` 和一个叫 `deployment:persona` 的**具名槽位**，后者解决的是"preset 想换掉 persona，而不是再加一段"。
+下一课：**5.4 谁能替换整个 prompt** —— 到现在为止，段落只能往上加。但有些场景需要"这一段就是全部"：一个跑固定任务的 subagent 不需要通用的编码助手身份。dsh 有 `complete: true` 和一个叫 `deployment:persona-prefix` 的**具名槽位**，后者解决的是"preset 想换掉 persona，而不是再加一段"。

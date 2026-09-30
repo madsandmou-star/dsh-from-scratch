@@ -10,7 +10,7 @@
 prompt.variable('cwd', () => process.cwd())
 prompt.variable('model', () => ctx.config.model)
 prompt.register(identitySection)
-prompt.register({ name: PERSONA_SECTION, … })
+prompt.register({ name: PERSONA_PREFIX_SECTION, … })
 prompt.register(toolGuidanceSection)
 prompt.register(readOnlyNotice(ctx.config.readOnly))
 prompt.context({ name: 'time', … })
@@ -144,7 +144,7 @@ async dispose(): Promise<void> {
 ctx.effect(() => prompt.variable('cwd', () => process.cwd()))
 ctx.effect(() => prompt.variable('model', () => ctx.config.model))
 ctx.effect(() => prompt.register(identitySection))
-ctx.effect(() => prompt.register({ name: PERSONA_SECTION, … }))
+ctx.effect(() => prompt.register({ name: PERSONA_PREFIX_SECTION, … }))
 ctx.effect(() => prompt.register(toolGuidanceSection))
 ctx.effect(() => prompt.register(readOnlyNotice(ctx.config.readOnly)))
 ctx.effect(() => prompt.context({ name: 'time', … }))
@@ -162,7 +162,7 @@ node --import tsx demos/09-effects/02-prompt-effects.mjs
 
 ```
 === 装上之后 ===
-  清单：4 段 —— harness:identity、deployment:persona、tools:guidance、guard:read-only
+  清单：4 段 —— harness:identity、deployment:persona-prefix、tools:guidance、guard:read-only
     拼出来 336 字符；运行时上下文 60 字符
 
 === 收掉整棵树 ===

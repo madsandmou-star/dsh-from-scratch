@@ -172,8 +172,8 @@ export function deriveMessages(events: readonly SessionEvent[], systemPrompt: st
             // 日志存"这件事是什么"，wire 格式是它的投影，换供应商只换这几行。
             // `type: 'function'` 不用写 `as const`——它直接嵌在 messages.push() 的实参里，
             // 编译器从 Message['tool_calls'] 推得出这里要的是字面量类型。
-            // dsh 的 `dsh/packages/llm/llm-deepseek/src/serialize.ts` 先赋给局部变量，
-            // 没有这个上下文，所以那边必须写 `as const`。
+            // dsh 0.2 走的是 Messages 接口，同一件事在 `dsh/packages/llm/llm-deepseek/src/serialize.ts`
+            // 里变成 `{ type: 'tool_use', id, name, input }`——wire 格式整个换了，翻译仍然只在这一层。
             tool_calls: toolCalls.map(call => ({
               id: call.id,
               type: 'function',

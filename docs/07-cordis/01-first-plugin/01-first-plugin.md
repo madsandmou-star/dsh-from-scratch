@@ -33,7 +33,7 @@ node --import tsx demos/07-cordis/02-duplicated-assembly.mjs
   prompt.variable('cwd', () => process.cwd())
   prompt.variable('model', () => config.model)
   prompt.register(identitySection)
-  prompt.register({ name: PERSONA_SECTION, order: PERSONA_ORDER, text: config.systemPrompt })
+  prompt.register({ name: PERSONA_PREFIX_SECTION, order: PERSONA_ORDER, text: config.systemPrompt })
   prompt.register(toolGuidanceSection)
   prompt.register(readOnlyNotice(config.readOnly))
   prompt.context({ name: 'time', order: 0, text: () => `现在是 ${new Date().toISOString()}。` })

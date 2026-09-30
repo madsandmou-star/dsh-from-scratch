@@ -480,7 +480,8 @@ export const globTool: Tool = {
     if (hits.length === 0) return '没有匹配的文件。'
 
     // 按修改时间倒序：模型问"这个功能的代码在哪"时，最近动过的文件几乎总是最相关的。
-    // dsh 的 glob 也是这个顺序（它靠 `rg --files` 自带的排序拿到）。
+    // dsh 的 glob 也按修改时间排（`rg --files --sort=modified`）；超过上限时是取最前面一段
+    // 还是按顶层目录均匀抽样，是一个部署配置项（`sampleOverCapGlobResults`）。
     hits.sort((a, b) => b.mtime - a.mtime)
     const shown = hits.slice(0, MAX_RESULTS).map(item => item.target).join('\n')
     return hits.length > MAX_RESULTS

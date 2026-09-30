@@ -122,7 +122,7 @@ text: '你是一个跑在命令行里的编码助手。…\n'
 ```
 [system prompt inventory]
    -100  harness:identity  (118 ch)
-      0  deployment:persona  (28 ch)
+      0  deployment:persona-prefix  (28 ch)
     100  tools:guidance  (214 ch)
     110  guard:read-only  (0 ch)
 --- 拼出来的 system prompt（364 ch）---

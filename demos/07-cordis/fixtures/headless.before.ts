@@ -19,7 +19,7 @@ import { accounting, outputBackstop, readOnlyGuard, readOnlyNotice } from './gua
 import { runTool } from './pipeline.ts'
 import { Session, deriveMessages } from './session.ts'
 import { SESSION_FORMAT_VERSION, attachJsonlPersistence, newSessionId, sessionLogPath } from './persistence.ts'
-import { PERSONA_SECTION, PERSONA_ORDER, PromptRegistry, CONTEXT_CLEARED, identitySection } from './system-prompt.ts'
+import { PERSONA_PREFIX_SECTION, PERSONA_ORDER, PromptRegistry, CONTEXT_CLEARED, identitySection } from './system-prompt.ts'
 import { tools, toolGuidanceSection } from './tool.ts'
 import type { ToolCall } from './types.ts'
 
@@ -32,7 +32,7 @@ const prompt = new PromptRegistry()
 prompt.variable('cwd', () => process.cwd())
 prompt.variable('model', () => config.model)
 prompt.register(identitySection)
-prompt.register({ name: PERSONA_SECTION, order: PERSONA_ORDER, text: config.systemPrompt })
+prompt.register({ name: PERSONA_PREFIX_SECTION, order: PERSONA_ORDER, text: config.systemPrompt })
 prompt.register(toolGuidanceSection)
 prompt.register(readOnlyNotice(config.readOnly))
 prompt.context({

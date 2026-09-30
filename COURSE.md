@@ -258,10 +258,10 @@ src/types.ts       # 改：ToolCall、tool role
 - **5.4 [谁能替换整个 prompt](docs/05-system-prompt/04-complete/01-complete.md)**
   - 痛点：subagent 不需要通用身份；preset 想换掉 persona 却只能"加"
   - `replace()` 是另一个方法而不是 `force: true`——两种意图两个名字
-  - 具名槽位：导出的 `PERSONA_SECTION` 常量才是"替换而不是重复"的关键
+  - 具名槽位：导出的 `PERSONA_PREFIX_SECTION` 常量才是"替换而不是重复"的关键
   - `完整: true` 换掉的是哪些段进 prompt，不是要不要处理模板
   - 两段都说"我是全部"就拒绝启动；debug 清单不许说谎
-  - `complete` 与 `suppressContext` 正交；对照 dsh 的作用域遮蔽与自动撤销
+  - `complete` 与 `suppressRuntimeContext` 正交；对照 dsh 的作用域遮蔽与自动撤销
 
 - **5.5 [阶段验收](docs/05-system-prompt/05-stage-review/01-stage-review.md)**
   - 一条主线：五节课是同一个问题链上的四次分叉
@@ -436,7 +436,7 @@ src/types.ts       # 改：ToolCall、tool role
 
 > **痛点**：messages 数组丢掉了"发生过什么"，无法 revert、无法 fork、无法重放 UI。
 >
-> **引入**：追加式 `SessionEvent` 日志 + 投影（`deriveMessages()`）；**模型可见 ⟺ 已记录**。
+> **引入**：追加式 `SessionEvent` 日志 + 投影（`deriveMessages()`）；**模型可见 ⟺ 已记录**——连 system prompt 也要落成 `system/message`；模型的流压紧存进 `assistant/message`（失败的尝试记成 `assistant/attempt`）；会话格式版本与相邻升级链。
 >
 > **对照**：`dsh/packages/core/session/src/index.ts`、[docs/architecture.md](dsh/docs/architecture.md#session-log)。
 
@@ -484,7 +484,7 @@ src/types.ts       # 改：ToolCall、tool role
 
 > **痛点**：只有一个终端界面；换个前端就得重写一遍编排逻辑。
 >
-> **引入**：headless / ACP / JSON-RPC / Web 各自只是一个出口，UI 由 `session/event` 驱动。
+> **引入**：headless / ACP / JSON-RPC / Web 各自只是一个出口，UI 由两条通道驱动：`session/event`（已成事实的日志）和 `agent/assistant-stream`（还没对账的临时帧）。
 >
 > **对照**：`dsh/packages/bundle/sdk-minimal/`（最小的完整装配）、`dsh/packages/sdk/`、`dsh/packages/acp/`。
 

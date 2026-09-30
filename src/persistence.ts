@@ -86,11 +86,12 @@ function toLine(event: SessionEvent | SessionHeader): string {
  *
  * 200ms 是"人感觉不到"和"批得够大"之间的折中：模型吐字的间隙远比这短，
  * 所以一次模型回复期间产生的事件会被攒成一两批，而不是几十次系统调用。
- * dsh 的默认值也是 200（`dsh/packages/session/session-persistence/src/coordinator.ts`
- * 里的 `DEFAULT_WRITE_BATCH_MAX_DELAY_MS`），而且它是**可配置**的——
- * 批多久是部署决定，不是代码常量。
+ * 名字和取值都照抄 dsh：`dsh/packages/session/session-persistence-jsonl/src/storage.ts`
+ * 里的 `LIVE_WRITE_BATCH_MAX_DELAY_MS = 200`。"LIVE" 指的是订阅 `session/event`
+ * 路由进来的实时事件——我们的写入器只有这一种来源。dsh 0.1 时它还是可配置项，
+ * 0.2 收回成了常量：正确性只靠 flush，这个延迟只影响性能（见 6.3）。
  */
-export const WRITE_BATCH_MAX_DELAY_MS = 200
+export const LIVE_WRITE_BATCH_MAX_DELAY_MS = 200
 
 /**
  * 把一批行追加到文件末尾，然后 **fsync**。
@@ -140,7 +141,7 @@ export class SessionWriter {
       void this.flush().catch(error => {
         console.error(`[会话日志写入失败，将在下一个检查点重试] ${error instanceof Error ? error.message : String(error)}`)
       })
-    }, WRITE_BATCH_MAX_DELAY_MS)
+    }, LIVE_WRITE_BATCH_MAX_DELAY_MS)
     // 不让这个定时器拖住进程退出：该刷的时候我们会显式刷。
     this.timer.unref?.()
   }

@@ -86,7 +86,7 @@ node --import tsx demos/06-session/05-batching.mjs
 `src/persistence.ts` 新增的部分：
 
 ```ts
-export const WRITE_BATCH_MAX_DELAY_MS = 200
+export const LIVE_WRITE_BATCH_MAX_DELAY_MS = 200
 
 /** 追加一批行然后 fsync。fsync 很贵，所以只在检查点上花这笔钱。 */
 async function appendAndSync(path: string, content: string): Promise<void> {
@@ -113,7 +113,7 @@ export class SessionWriter {
     this.timer = setTimeout(() => {
       // 定时刷没有调用方接错误：留在 pending 里等下一次 flush 重试，同时立刻报出来。
       void this.flush().catch(error => { console.error(`[会话日志写入失败，将在下一个检查点重试] …`) })
-    }, WRITE_BATCH_MAX_DELAY_MS)
+    }, LIVE_WRITE_BATCH_MAX_DELAY_MS)
     this.timer.unref?.()
   }
 
@@ -291,7 +291,7 @@ dsh 更彻底：它先记下文件原来的大小，失败时 **truncate 回去�
 
 | | 我们的 | dsh 的 | 为什么 dsh 更复杂 |
 |---|---|---|---|
-| 批处理延迟 | `WRITE_BATCH_MAX_DELAY_MS = 200` 常量 | `LIVE_WRITE_BATCH_MAX_DELAY_MS = 200`，**也是常量** | 见下面那段 |
+| 批处理延迟 | `LIVE_WRITE_BATCH_MAX_DELAY_MS = 200` 常量 | `LIVE_WRITE_BATCH_MAX_DELAY_MS = 200`，**也是常量** | 见下面那段 |
 | 批处理归属 | 一个 `SessionWriter` | 每个打开的写句柄（`JsonlSessionHandle`）自己一个缓冲区和一个 `batchTimer` | 一个会话只有一个写者，缓冲跟着句柄走，关句柄时顺手排干 |
 | 写失败 | 整批放回队首 | 同样整批放回（`this.buffered = batch.concat(this.buffered)`），另外把文件 truncate 回原大小再重试 | 半截字节会造出重复序号 |
 | 后台写失败 | 打一行日志 | 也是打一行 warn，但**暂停自动写**（`drainPaused`），等下一次显式 flush 重试并把错误抛给调用方 | 定时器触发的失败没人 await，只能记下来；显式 flush 有人等，才抛得出去 |

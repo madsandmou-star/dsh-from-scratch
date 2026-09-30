@@ -9,7 +9,7 @@
 DSH_SHOW_PROMPT=1 npm run dev
 # [system prompt inventory]
 #    -100  harness:identity  (118 ch)
-#       0  deployment:persona  (28 ch)
+#       0  deployment:persona-prefix  (28 ch)
 #     100  tools:guidance  (214 ch)
 #     110  guard:read-only  (0 ch)  ← 未生效
 
@@ -36,7 +36,7 @@ npm run demo demos/05-system-prompt/06-why-not-system-prompt.mjs
 
 # ⑦ 具名槽位与完整 prompt
 npm run demo demos/05-system-prompt/07-complete-and-slots.mjs
-# ❌ 同时有多段声明了"complete"：deployment:persona、tools:guidance
+# ❌ 同时有多段声明了"complete"：deployment:persona-prefix、tools:guidance
 
 # ⑧⑨
 npm run typecheck && npm run check

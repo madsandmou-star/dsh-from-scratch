@@ -74,7 +74,8 @@ export async function* chatStream(
   // 没等到 [DONE] 流就结束了 = 响应被截断（网络断、服务器崩、代理超时）。
   // 此时已经 yield 出去的那些增量是真实到达的，但整段回复是残缺的，
   // 调用方必须知道这件事——所以这里抛错，而不是安静地正常返回。
-  // dsh 在 packages/llm/llm-deepseek/src/sse.ts 里做同样的判断，错误码是 STREAM_CLOSED。
+  // dsh 在 packages/llm/llm-deepseek/src/translate.ts 里做同样的判断，错误码是 STREAM_CLOSED；
+  // 它走的是 Messages 接口，等的终止标记叫 message_stop 而不是 [DONE]。
   if (!sawDone) throw new Error('流在收到 [DONE] 之前就结束了：这次回复不完整，不可信')
 
   // 到这里流已经完整结束了，攒着的工具调用才算收全。
