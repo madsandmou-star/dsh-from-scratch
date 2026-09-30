@@ -103,7 +103,11 @@ ctx.effect(() => async () => {
 - **dsh 0.1 的解法：调注册顺序。** 当时的 coordinator 故意**先**注册 disposer、**后**注册监听器，注释写着 "Register the disposer BEFORE the listeners. Cordis tears effects down in reverse registration order, so event admission closes before this final drain"——让监听器先关，再排干。
 - **dsh 0.2 的解法：不依赖顺序。** `close()` 里是一个循环："drain again until a full pass leaves the routed buffer empty"（一直排，直到完整一轮之后缓冲是空的），注释说理由是 "Producers on other fibers may still publish while close waits"。而且句柄一关，它就从 `writers` 里被删掉——之后再来的 `session/event`，`this.writers.get(session.id)` 拿到 `undefined`，`?.` 直接跳过。
 
-**0.1 靠"顺序对了才对"，0.2 靠"顺序怎样都对"。** 后者更稳：注册顺序是一件很容易在重构时被悄悄改掉的事，而"关了就查不到"是数据结构保证的。阶段 9 讲可逆注册时会正面讲"注册顺序即拆卸顺序"。
+**0.1 靠"顺序对了才对"，0.2 靠"顺序怎样都对"。** 为什么要换？重做持久化的设计笔记（`dsh/.agents/notes/implemented/architecture/2026-08-27-handle-based-session-persistence.md`）说得很直接："Root-fiber disposal runs every fiber's disposers concurrently"——**整个应用关闭时，所有插件的 disposer 是并发跑的**。一个插件内部把注册顺序排对了，只能管住它自己的监听器；别的插件（比如 agent 循环）可能还在另一条 fiber 上往日志里追加事件。所以 0.2 让 `close()` 自己排到空为止，"不管哪条 fiber 先拆，都不丢东西"。
+
+同一份笔记也写明了它**不**保证什么："a root dispose mid-turn still loses the turn's unemitted remainder by design"——一轮进行到一半被关掉，还没发出来的事件就没了；下次续聊时由 `interruptedTurnClosers` 把这一轮补上收尾。排干只对"已经发出的事件"负责。
+
+阶段 9 讲可逆注册时会正面讲"注册顺序即拆卸顺序"，以及它管得到哪里、管不到哪里。
 
 ## 一次完整的 turn，磁盘视角
 
@@ -126,7 +130,7 @@ tools/execute 前 → flush（副作用之前必须耐久，否则不执行）
 1. **区分"记录成为事实"和"记录变得耐久"**：前者是内存追加（同步、便宜、立刻广播），后者是磁盘 I/O（异步、贵、攒批）。混为一谈会导致要么性能崩了，要么崩溃后对不上账。
 2. **耐久检查点锚定在不可撤销动作之前**，不是按固定时间间隔。
 3. **检查点必须 fail-closed**，否则它只是一句祝愿。
-4. **卸载要么靠顺序，要么不依赖顺序**：dsh 0.1 靠"先注册 disposer"让监听器先关；0.2 让排干循环到空、关掉的句柄查不到，顺序怎样都对。后者更不容易被重构弄坏。
+4. **卸载要么靠顺序，要么不依赖顺序**：dsh 0.1 靠"先注册 disposer"让监听器先关；0.2 让排干循环到空、关掉的句柄查不到，顺序怎样都对。换的原因是关闭时各插件的 disposer 并发执行，单个插件内部的注册顺序管不到别的插件。
 
 ---
 

@@ -307,7 +307,9 @@ source: { kind: 'plugin', plugin: SOURCE, form: 'snapshot', sections }
 
 **② 插入点是一个 waterfall 的默认值。** `agent/pre-step` 的默认决定是 `{ kind: 'enter', messages: [...claimed, context] }`——也就是说，**插件可以改这个决定**：可以在快照前面再插点东西，也可以整个拒绝这一步（`kind: 'reject'`）。我们那句 `appendContextSnapshot()` 是写死的，dsh 那句是一个可以被接管的默认值。
 
-**③ dsh 0.2 连 system prompt 也落日志。** 这一课开头说"一句写死的 persona 满足这条规矩，因为它在配置里不会变"——dsh 按规矩的原文办事："anything that reaches a model request must be reconstructable from the **session log**"——配置文件不是会话日志，它可以在两次运行之间被改，重放上个月的会话时，今天的配置代表不了当时。所以会话格式 v3（`dsh-v0.1.5-alpha.1`）加了 `system/message` 事件，把渲染好的 system prompt 作为日志里的第一个模型可见节点记下来。`dsh/packages/core/agent-loop/src/runtime-context.ts` 的模块注释说这个文件管"the two loop-owned surface messages the system prompt plugin forms: the system prompt (surface node 0 and any in-history replacement) and the dynamic runtime-context snapshot"（system prompt 插件产出的两种由循环负责的消息：system prompt 本身，和动态运行时快照）。
+**③ dsh 连 system prompt 也落日志。** 这一课开头说"一句写死的 persona 满足这条规矩，因为它在配置里不会变"——dsh 不接受这个"不会变"。规矩原文是 "anything that reaches a model request must be reconstructable from the **session log**"，配置文件不是会话日志：它可以在两次运行之间被改，重放上个月的会话时，今天的配置代表不了当时。所以 dsh 一直把每次渲染好的 system prompt 记在日志里。
+
+记在哪，0.2 改过一次。0.1 时它是 `request/header`（一条"这次请求用了什么配置"的日志事件）里的一个 `system` 字段；会话格式 v3（`dsh-v0.1.5-alpha.1`）把它挪成了独立的 `system/message` 事件，作为模型可见面上的第 0 个节点。dsh 的设计笔记（`dsh/.agents/notes/implemented/architecture/2026-09-02-system-prompt-as-surface-node.md`）给的理由是 **"one model-visible fact with two homes"**：别的消息都在模型可见面上，唯独 system prompt 藏在 header 里，于是每个想知道"模型到底看到了什么"的读者（压缩、token 计数、界面、快照测试）都得自己去两个地方拼。`dsh/packages/core/agent-loop/src/runtime-context.ts` 的模块注释说这个文件现在管"the two loop-owned surface messages the system prompt plugin forms: the system prompt (surface node 0 and any in-history replacement) and the dynamic runtime-context snapshot"。
 
 system prompt 变了怎么办？同文件的 `SystemPromptProjection` 注释：
 

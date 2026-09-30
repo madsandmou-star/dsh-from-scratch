@@ -180,8 +180,8 @@ ctx.effect(() => ctx.systemPrompt.section({
 
 和我们比，dsh 0.2 多了两处：
 
-- **persona 是两个槽位**：前缀（order 0，排在所有工具说明前面）和后缀（order 10200，排在最后）。前缀是"你是谁"，后缀是"最后再叮嘱一句"。我们只做了前缀这一个，所以名字叫 `PERSONA_PREFIX_SECTION`——将来补后缀时不用改名。
-- **order 不再是各插件自己写的数字**，而是 `getSectionOrder('名字')` 去一张中央表（`dsh/packages/core/system-prompt/src/index.ts` 的 `SECTION_ORDERS`）里查：`HARNESS_IDENTITY: -1000`、`DEPLOYMENT_PERSONA_PREFIX: 0`、`TOOL_BASH: 1000`、`TOOL_EDIT: 1300`……`DEPLOYMENT_PERSONA_SUFFIX: 10200`。各插件只说"我是哪一类"，**谁排在谁前面由一个地方决定**，不会出现两个插件各自挑了同一个数字。
+- **persona 是两个槽位**：前缀（order 0，排在所有工具说明前面）和后缀（order 10200，排在最后）。分开的理由在设计笔记 `dsh/.agents/notes/implemented/bug-fix/2026-09-06-environment-prompt-suffix.md` 里：工作目录、本机 Web 地址这类**每台机器都不一样**的事实，如果放在开头，会让所有人本来一模一样的提示词从第几个字就开始不同，**模型服务商的前缀缓存就用不上了**。所以 dsh 自带的装配把"你是谁"放前缀，只把 `Your working directory is {{cwd}}.` 这一句放后缀。这和 5.3 讲的"变的东西放后面"是同一条判断。我们只做了前缀这一个，所以名字叫 `PERSONA_PREFIX_SECTION`——将来补后缀时不用改名。
+- **order 不再是各插件自己写的数字**，而是 `getSectionOrder('名字')` 去一张中央表（`dsh/packages/core/system-prompt/src/index.ts` 的 `SECTION_ORDERS`）里查：`HARNESS_IDENTITY: -1000`、`DEPLOYMENT_PERSONA_PREFIX: 0`、`TOOL_BASH: 1000`、`TOOL_EDIT: 1300`……`DEPLOYMENT_PERSONA_SUFFIX: 10200`。起因是一个真实的 bug（`dsh/.agents/notes/archived/architecture/2026-08-25-sparse-first-party-prompt-section-orders.md`）：二十多个包各写各的数字，两个段落撞上同一个 order 时，谁在前就取决于**插件恰好哪个先启动**——同一份装配跑两次，发给模型的提示词可能不一样。改成中央表之后，每个位置唯一，相邻位置至少隔 10，给以后插队留了空。
 
 **"槽位"就是一个约定好名字的位置。** 它不是语言特性，就是一个大家都同意去写的字符串——而把它变成导出常量，是让这个约定**能被编译器和 IDE 帮忙检查**的唯一办法。
 

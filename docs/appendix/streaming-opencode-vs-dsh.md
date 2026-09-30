@@ -103,6 +103,22 @@ dsh 0.1 的 `assistant/chunk` 是**正经的 durable 事件**：每个增量一�
 | 进程在一步中间被杀 | 已到达的碎片在日志里 | **那一步的碎片全丢** |
 | 屏幕和日志的一致性 | 日志是广播的上游，屏幕上的必在日志里 | 靠结束帧对账（2.4a） |
 
+dsh 自己的设计笔记（`dsh/.agents/notes/implemented/architecture/2026-09-01-v2-embedded-assistant-streams.md`）把两边的理由都写了。反对"每块一条事件"：
+
+> making each chunk a top-level Session event repeats envelopes throughout persistence, telemetry, history transport, indexing, and client assembly.
+>
+> （每块一条顶层事件，意味着每一块都要在持久化、遥测、历史传输、索引、客户端组装里各背一份事件外壳。）
+
+反对"干脆只存组装好的消息"（也就是 opencode 的做法）：
+
+> Storing only assembled successful messages would remove that overhead but lose failed and abandoned output, token boundaries, timestamps, and deterministic provider replay.
+>
+> （只存成功组装的消息能省掉开销，但会丢掉失败和中途放弃的输出、token 边界、时间戳，以及可确定地向供应商重放的能力。）
+
+代价它也认了："A hard process or host loss before settlement discards the complete in-flight stream; `agent/assistant-stream` is not a write-ahead log."（一步结束之前进程或机器挂掉，这一步正在流的内容全部丢失；临时帧不是预写日志。）
+
+量级有多大？同一批笔记里记了一个真实会话：旧格式下展开是**约 914 万条**事件，转成新格式后是 **72,784 条**（`dsh/.agents/notes/implemented/architecture/2026-08-31-released-session-format-migrations.md`）。
+
 **dsh 保住了它真正在乎的东西（token 级重放），放弃了一个代价很高的附带性质（崩溃瞬间的碎片）。** 这和 opencode 当初的判断是同一个方向，只是 dsh 多留了一样：时间和边界。
 
 ## ④ 用户可见：两边都是"从事件流渲染"

@@ -298,7 +298,13 @@ dsh 更彻底：它先记下文件原来的大小，失败时 **truncate 回去�
 | 检查点位置 | 两处，写在 `index.ts` 里 | 三处，一个独立插件 | 检查点策略是可替换的——不需要就不装 |
 | 嵌套工具 | 没有嵌套 | `exec.parent !== undefined` 时跳过 | subagent 的工具调用不重复付 fsync |
 
-第一行值得停一下。dsh 0.1 时这个延迟是可配置的 `writeBatchMaxDelayMs`，0.2 把它收回成了 JSONL 提供者里的一个常量（`dsh/packages/session/session-persistence-jsonl/src/storage.ts`）。乍看这和 4.2 那条"插件里不许有硬编码的可调参数"相抵触——200ms 既不是协议常量，也不是安全不变量（规矩原文只给这两类豁免："Protocol constants, external specs, and security invariants stay fixed."）。我的解读是：0.2 的持久化接口（`dsh/packages/session/session-persistence/src/handle.ts`）把承诺写得很清楚——`append` 只是 "Persistence is best-effort"，**`flush` 才是 "The durability barrier — the one operation that promises storage"**。正确性全压在 `flush` 上，200ms 只影响"崩溃时最多丢多少没到检查点的东西"和写盘次数，dsh 不再把它当成部署方需要调的旋钮。（这是解读，不是源码事实：dsh 没有写明为什么收回这个配置项。）
+第一行值得停一下。dsh 0.1 时这个延迟是可配置的 `writeBatchMaxDelayMs`，0.2 把它收回成了 JSONL 提供者里的一个常量（`dsh/packages/session/session-persistence-jsonl/src/storage.ts`）。乍看这和 4.2 那条"插件里不许有硬编码的可调参数"相抵触，但那条规矩管的是 "deployment-varying choices"（**随部署变化的选择**）。重做持久化的那份设计笔记（`dsh/.agents/notes/implemented/architecture/2026-08-27-handle-based-session-persistence.md`）专门否掉了"持久化自带批处理配置"这个方案，理由原话是：
+
+> the batching window is internal write-path scheduling, not a deployment-varying choice, so it is a provider constant and no configuration knob exists anywhere.
+>
+> （批处理窗口是写路径**内部的调度**，不是随部署变化的选择，所以它是提供者里的一个常量，任何地方都没有配置旋钮。）
+
+能这么判断，是因为 0.2 的接口（`dsh/packages/session/session-persistence/src/handle.ts`）把承诺分得很清楚：`append` 只是 "Persistence is best-effort"，**`flush` 才是 "The durability barrier — the one operation that promises storage"**。正确性全压在 `flush` 和检查点上，200ms 只影响写盘次数，**没有哪个部署需要为了正确而调它**。这是"什么才算可调参数"的一个好例子：不是"这个数字可以不一样"就要做成配置，而是"不同部署会因为不同需求选不同的值"才要。
 
 倒数第二行的那个"独立插件"值得记住：dsh 把检查点做成了 `session-checkpoint-policy` 这个包，靠三个监听器挂在 `llm/stream`、`tools/execute`、`agent/pre-step` 上。**它可以整个不装**——比如一个跑在内存里的测试装配，根本不需要 fsync。
 
