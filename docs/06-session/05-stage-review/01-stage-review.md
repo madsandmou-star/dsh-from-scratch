@@ -164,7 +164,7 @@ JSON 数组把失败粒度定在"整个文件"，JSONL 定在"一行"。6.2 那�
 
 ## 与 dsh 的差距
 
-规模上：我们 **614 行**（`session.ts` + `persistence.ts`）对着 dsh 的 `core/session` **3164 行**加 `packages/session/` 下 **13 个包、9414 行**。
+规模上：我们 **614 行**（`session.ts` + `persistence.ts`）对着 dsh 的 `core/session` **3421 行**加 `packages/session/` 下 **20 个包、17863 行**（其中 6 个包是会话格式和它的四级升级链）。
 
 | | 我们的 | dsh 的 | 哪个阶段补齐 |
 |---|---|---|---|
@@ -175,24 +175,27 @@ JSON 数组把失败粒度定在"整个文件"，JSONL 定在"一行"。6.2 那�
 | 事件表扩展 | 改一个文件 | declaration merging，每个插件自己加 | 阶段 7 / 10 |
 | turn 边界 | 只有 `turn/start` | `turn/start` + `turn/end` + `step/start` + `step/end` | 阶段 12 |
 | 崩溃补齐 | 投影时即时造 | `interruptedTurnClosers()` 往日志补**真实事件** | 阶段 12 |
-| 批处理延迟 | 常量 200ms | 可配置，默认 200 | 阶段 11（配置即组合） |
-| 写失败 | 整批放回队首 | truncate 回原大小再 fsync 再重试 | 阶段 12 |
+| 批处理延迟 | 常量 200ms | 也是常量 200ms（`LIVE_WRITE_BATCH_MAX_DELAY_MS`），缓冲挂在每个写句柄上 | 阶段 12 |
+| 写失败 | 整批放回队首 | 整批放回 + truncate 回原大小再重试；定时写失败就暂停，等显式 flush 抛出来 | 阶段 12 |
 | 检查点 | 写死在 `index.ts` | 独立插件，三个监听器，可整个不装 | 阶段 7 / 10 |
 | 中间损坏 | 一律拒绝 | 延迟判断：后面还有 `turn/end` 才抛 | 阶段 12 |
 | 目录持久化 | 没做 | 截断/新建后 fsync 父目录 | 阶段 12 |
-| 落盘后端 | 只有 JSONL | JSONL / SQLite 两个提供者 | 阶段 14（capability seam） |
-| 物理编码 | 纯文本 | 可选 zstd 压缩 | 不复刻（外围） |
-| 会话标题、统计、遥测 | 没有 | 8 个独立包 | 不复刻（外围，只带读） |
+| 落盘后端 | 只有 JSONL | 抽象 `SessionPersistence` + 按会话打开的 `SessionHandle`；目前只有 JSONL 一个提供者 | 阶段 14（capability seam） |
+| 物理编码 | 纯文本 | 默认 zstd 压缩 | 不复刻（外围） |
+| 旧格式 | 读不懂就拒绝 | 当前 v4，v0–v3 经四个相邻升级包升上来 | 不复刻（外围，只带读） |
+| 会话标题、统计、遥测 | 没有 | 7 个独立包（标题 4、统计 1、遥测 2） | 不复刻（外围，只带读） |
 
 对应源码位置，方便自己去翻：
 
 - `dsh/packages/core/session/src/index.ts` —— `Session` 本体、`append()`、`deriveMessages()`
 - `dsh/packages/core/session/src/types.ts` —— `SessionEventMap`、`SessionEvent` 包装、`SESSION_FORMAT_VERSION`
-- `dsh/packages/core/session/src/surface.ts` —— `deriveEventMessage()`，那条"THE 投影规则"
+- `dsh/packages/core/session/src/surface.ts` —— `deriveEventMessage()`，单条投影规则
 - `dsh/packages/core/session/src/repair.ts` —— `interruptedTurnClosers()`、两个恢复码
 - `dsh/packages/core/session/src/known-event-types.ts` —— 生成的已知类型表
-- `dsh/packages/session/session-persistence/src/coordinator.ts` —— 批处理调度、两个错误类型
-- `dsh/packages/session/session-persistence/src/write-behind.ts` —— `SessionWriteBehind`
+- `dsh/packages/session/session-persistence/src/index.ts` —— `SessionPersistence` 抽象 Service（`create` / `open` / `flush` / `stat` / `list`）
+- `dsh/packages/session/session-persistence/src/handle.ts` —— `SessionHandle`：`append` 尽力而为、`flush` 是耐久屏障
+- `dsh/packages/session/session-persistence/src/errors.ts` —— 损坏、格式不支持等错误类型
+- `dsh/packages/session/session-persistence-jsonl/src/storage.ts` —— 每个写句柄的缓冲、`batchTimer`、失败保留
 - `dsh/packages/session/session-persistence-jsonl/src/format.ts` —— 路径编码、会话头、`scanLog()`
 - `dsh/packages/session/session-checkpoint-policy/src/index.ts` —— 三个检查点监听器
 

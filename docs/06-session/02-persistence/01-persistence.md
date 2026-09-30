@@ -261,17 +261,17 @@ head -1 .dsh-learn/sessions/<id>.jsonl                       # 会话头：版�
 
 ## 对照 dsh
 
-dsh 的 JSONL 后端在 `dsh/packages/session/session-persistence-jsonl/`。同一个包里，我们那 40 行对应的是 `format.ts` 加一整套写入调度。
+dsh 的 JSONL 后端在 `dsh/packages/session/session-persistence-jsonl/`。同一个包里，我们那 40 行对应的是 `format.ts`（格式）、`storage.ts`（写入调度）、`index.ts`（文件操作）三个文件，加起来 2800 多行。
 
 | | 我们的 | dsh 的 | 为什么 dsh 更复杂 |
 |---|---|---|---|
 | 存放位置 | `工作目录/.dsh-learn/sessions/<id>.jsonl` | `<root>/<项目目录>/<会话目录>/` | 会话集中存放，还要留位置放会话本地的其他产物 |
 | id 进路径 | 不合法就拒绝 | `encodeSegment()` 无损转义 | id 可能来自外部系统，无权要求对方守规矩 |
 | 写入 | 每条一次 `appendFileSync` | 批量写 + 检查点策略 | 同步写会卡住事件循环（6.3） |
-| 物理编码 | 纯文本 | 可选 zstd 压缩（`logSuffix()`） | 长会话的日志会很大 |
+| 物理编码 | 纯文本 | 默认 zstd 压缩（`DEFAULT_COMPRESSION = 'zstd'`，文件后缀由 `logSuffix()` 决定） | 长会话的日志会很大 |
 | 头的校验 | 三个字段 | `isHeaderLine()` 逐字段类型守卫 | 文件是不可信输入，`JSON.parse` 之后什么都可能 |
 | 坏文件 | 一律拒绝 | 截断修复 vs 拒绝，分开处理（6.4） | 崩溃是常态，不该让用户丢掉整个会话 |
-| 后端 | 只有 JSONL | JSONL / SQLite 两个提供者 | 落盘方式是一个 capability seam（阶段 14） |
+| 后端 | 只有 JSONL | 目前也只有 JSONL 一个提供者，但 `SessionPersistence` 是抽象 Service，调用方只认它 | 落盘方式是一个 capability seam（阶段 14） |
 
 `isHeaderLine()` 那一行值得单独看——它检查 `createdAt` 是不是安全整数、是不是非负、**是不是负零**：
 

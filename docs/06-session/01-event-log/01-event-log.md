@@ -365,13 +365,15 @@ DSH_DUMP_LOG=1 npm run dev
 
 dsh 的 `Session` 在 `dsh/packages/core/session/src/index.ts`，事件表在 `dsh/packages/core/session/src/types.ts`，我们抄的 `deriveMessages()` 是它的真实方法名（`dsh/packages/core/session/src/index.ts` 里的 `deriveMessages()`）。三处关键差别：
 
-**① 投影规则被抽成了一个纯函数，而且是"THE 投影规则"。** `dsh/packages/core/session/src/surface.ts` 导出 `deriveEventMessage(event): Message | null`——一次只投影一条事件。它的注释说明了为什么要单独导出：
+**① 投影规则被抽成了一个纯函数。** `dsh/packages/core/session/src/surface.ts` 导出 `deriveEventMessage(event, projectedMessages?)`——一次只投影一条事件。它的 JSDoc：
 
-> This is THE per-node projection rule: `Session.deriveMessages` folds it over the live surface, external reconstructors and pure projections fold the same function over a log prefix's surface to rebuild the exact messages any request was built from.
+> Project a single event into the LLM message it derives to, or null when it produces none … A caller reconstructing model input supplies the same prefix's `projectedMessages` from `foldSurface`; without that map this function reads original event content. Session instance methods apply the live projection.
 >
-> （这是**唯一**的单条投影规则：`Session.deriveMessages` 把它折叠到活着的 surface 上；外部的重建器和纯投影把**同一个函数**折叠到日志前缀的 surface 上，就能重建出任何一次请求当时是用哪些 messages 拼出来的。）
+> （把**一条**事件投影成它对应的那条 LLM 消息，不产生消息就返回 null……**重建模型输入的调用方**，从同一个日志前缀的 `foldSurface` 拿到投影表传进来；`Session` 的实例方法用的是活着的那份投影。）
 
-"重建出任何一次请求当时用的 messages"——这正是 `CLAUDE.md` 里那条 **model-visible ⟺ logged** 规矩的兑现方式：凡是能到达模型的东西，都必须能从日志算回来。我们的 `deriveMessages` 是一整个循环，没法单独复用某一条的规则；dsh 拆成两层，所以"重放第 7 次请求"这件事才可能。
+`Session.deriveMessages()` 的注释也说 "The projection rules are `deriveEventMessage`"——**活着的会话和事后重建用的是同一个函数**，只是喂给它的日志前缀不同。
+
+"重建模型输入"——这正是 `CLAUDE.md` 里那条 **model-visible ⟺ logged** 规矩的兑现方式：凡是能到达模型的东西，都必须能从日志算回来。我们的 `deriveMessages` 是一整个循环，没法单独复用某一条的规则；dsh 拆成两层，所以"重放第 7 次请求"这件事才可能。
 
 **② surface：投影走的不是全部日志，而是一条"表面"。** dsh 的每条产生消息的事件在 append 时都带一个 `surfaceOp` 标记（`append` 或 `replace`）。压缩要把十条换成一条摘要时，它 append 一条带 `replace` 标记的新事件，**声明自己遮住了哪几条**；投影只走 surface 上的节点，被遮住的那些自动不出现。
 

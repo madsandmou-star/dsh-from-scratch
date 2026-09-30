@@ -248,11 +248,24 @@ root
 
 ## 对照 dsh
 
-dsh 的应用装配长这样（`dsh/packages/bundle/base/cordis.patch.yml` 是真实的一份）：
+dsh 的应用装配是一份数据，不是代码。`dsh/packages/bundle/base/cordis.patch.yml` 的开头：
 
 ```yaml
-- name: './hello.ts'
+- insert:
+    - id: tool-plugin-manager
+      name: '@deepseek-ai/dsh-plugin-manager/tools'
+      disabled: true
+
+    - id: plugin-manager
+      name: '@deepseek-ai/dsh-plugin-manager'
+      disabled: !!js "!ctx.get('profileContext')"
+
+    - id: timer
+      name: '@deepseek-ai/cordis-plugin-timer'
+    ...
 ```
+
+每一行一个插件，`id` 让上层的 patch 能按名字找到它、改它或关掉它。文件头的注释里有一句和下表第二行直接相关："Row order carries no load semantics (activation is service-availability driven)"——**行的顺序不决定加载顺序，谁先启动由服务什么时候可用决定**。
 
 | | 我们的 | dsh 的 | 哪个阶段补齐 |
 |---|---|---|---|

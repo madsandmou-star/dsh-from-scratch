@@ -110,16 +110,17 @@ demos/            # 新增：harness.mjs + 阶段 4 的十个演示
 
 **Windows 上装 pwsh 那套，别的平台装 bash 那套。** 如果工具全在一个包里，这个开关就没有粒度可言——你只能"全都要"或者"全不要"。
 
-同一个文件里还有：
+另一套写文件的工具 `str_replace_editor` 不在这份默认装配里。`dsh/packages/bundle/base/README.md` 写着："Default file editing uses `read`, `write`, and `edit`. The `str_replace_editor` tool remains available as an explicit opt-in."（默认用 `read`/`write`/`edit`；`str_replace_editor` 仍然可用，要显式加进来。）加的方法是在自己的 patch 里插一行：
 
 ```yaml
-- id: tool-str-replace-editor
-  name: '@deepseek-ai/dsh-tool-str-replace-editor'
-  config:
-    maxOutputChars: 16000
+- insert:
+    - id: tool-str-replace-editor
+      name: '@deepseek-ai/dsh-tool-str-replace-editor'
+      config:
+        maxOutputChars: 16000
 ```
 
-两套写文件的工具**同时存在**，装配时选哪套（或者都装）是部署的决定。这也只有分包才做得到。
+两套写文件的工具**都在仓库里**，装配时选哪套（或者都装）是部署的决定。这也只有分包才做得到。
 
 ### ③ 每个包声明自己要什么
 

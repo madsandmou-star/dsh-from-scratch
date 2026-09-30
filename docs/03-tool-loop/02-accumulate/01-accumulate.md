@@ -184,7 +184,7 @@ for (const delta of choice?.delta.tool_calls ?? []) {
 
 ```ts
 | { type: 'block-start';     index: number; blockType: ContentBlockType }
-| { type: 'tool-call-delta'; index: number; id: CallId; name?: string; argumentsDelta: string }
+| { type: 'tool-call-delta'; index: number; id: ToolCallId; name?: string; argumentsDelta: string }
 | { type: 'block-end';       index: number; block: ContentBlock }
 ```
 
@@ -194,11 +194,13 @@ for (const delta of choice?.delta.tool_calls ?? []) {
 |---|---|---|
 | 一个工具调用何时算完 | 整个流结束 | 收到它的 `block-end` |
 | 谁做累积 | 每个消费者自己攒 | `translate.ts` 攒好，下游拿到的 `block` 已经是完整对象 |
-| 能否边收边执行 | 不能——要等全部结束 | 可以——某个 block 结束就能派发它 |
+| 能否边收边执行 | 不能——要等全部结束 | 协议上可以，但 dsh 的循环也没这么做 |
 
-**第三行是真正的差距。** dsh 可以在第一个工具的 `block-end` 到达时就开始执行它，而第二个工具还在流；我们必须等整个响应结束。对于"读三个文件"这种并行工具调用，延迟差别是实打实的。
+**第三行要看清楚。** `block-end` 让"某个工具调用已经收全"成为一个可观测的时刻，理论上可以一到就派发。但 dsh 的 `dsh/packages/core/agent-loop/src/agent.ts` 是先把整条流读完、写下 `assistant/message`，再调 `executeToolCalls()`——和我们一样等全部结束。源码里没有写为什么；我的推测（不是源码事实）是 6.3 那条规矩：工具跑之前，"模型要求调用它"这条记录要先落盘，而那条记录就是整步结束时写的 `assistant/message`。**协议给了能力，不等于产品就要用。**
 
-代价是 `translate.ts` 那 185 行有状态的块装配器。**把复杂度集中在一个地方（翻译层），换取所有下游都能拿到干净的完整对象**——这和 2.4 讲的"只留流式接口"是同一种判断。
+所以 `block-end` 在 dsh 里真正换来的是前两行：**下游不再各自攒**，拿到的 `block` 已经是完整对象。
+
+代价是 `translate.ts` 那 166 行有状态的块装配器。**把复杂度集中在一个地方（翻译层），换取所有下游都能拿到干净的完整对象**——这和 2.4 讲的"只留流式接口"是同一种判断。
 
 ---
 

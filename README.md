@@ -7,15 +7,15 @@
 
 | | |
 |---|---|
-| 📌 参考版本 | deepseek-harness `dsh-v0.1.0-rc.8`（commit `141eb6fef`，钉在 `dsh/` submodule，只读） |
-| 📂 参考源码 | `dsh/packages/`、`dsh/docs/`、`dsh/examples/` |
-| 🎯 终点 | **骨架 1:1 复刻**（31 个包、约 6.2 万行）+ 外围逐个读懂；最后给 dsh 提一个真插件 |
+| 📌 参考版本 | deepseek-harness `0.2.0-rc.2`（commit `639ed0153`，2026-09-29，钉在 `dsh/` submodule，只读） |
+| 📂 参考源码 | `dsh/packages/`、`dsh/docs/`、`dsh/apps/` |
+| 🎯 终点 | **骨架 1:1 复刻**（rc.8 时统计为 31 个包、约 6.2 万行）+ 外围逐个读懂；最后给 dsh 提一个真插件 |
 | 👤 适合人群 | 想搞懂 AI coding agent 内部原理、准备给 dsh 提 PR 的开发者 |
 | 🗣️ 语言 | 讲义中文，技术术语保留英文（Cordis、waterfall、capability seam、session log） |
 
 ## 为什么不是"直接读源码"
 
-dsh 有 200 多个包（分在 50 个包组里）。打开 `dsh/packages/core/agent-loop/src/index.ts`，开头一行 `static inject = ['agents', 'sessions', 'llm', 'tools', 'systemPrompt']` 就牵出五个服务，而它们谁都不在这个文件里。直接读，第三个文件就迷路了——不是因为代码难，是因为**你缺少这套架构存在的动机**。
+dsh 有 300 多个包（分在 55 个包组里）。打开 `dsh/packages/core/agent-loop/src/index.ts`，一行 `static inject = ['agents', 'sessions', 'llm', 'tools', 'systemPrompt', 'sessionProjections']` 就牵出六个服务，而它们谁都不在这个文件里。直接读，第三个文件就迷路了——不是因为代码难，是因为**你缺少这套架构存在的动机**。
 
 一个抽象只有在你先痛过之后才讲得通：
 
@@ -43,9 +43,11 @@ dsh 有 200 多个包（分在 50 个包组里）。打开 `dsh/packages/core/ag
 
 | | 范围 | 规模 | 要求 |
 |---|---|---|---|
-| **骨架** | `core/`（session、tools、agent、agent-loop、system-prompt、scope）、`llm/` 三件套、`session/` 持久化与投影、fs / shell / subprocess 三条 seam、interaction 权限、compaction、subagent、skill、plan、todo、guard、context、credentials、settings、boot、bundle、util | **31 个包 / 62,400 行** | 逐行复刻到与源码一致 |
-| **框架** | `vendor/cordis` | 6,493 行 | 先自己写迷你版跑通，再对照读全量，不逐行抄 |
-| **外围** | `client/` Web GUI（45,536 行）、`host/` + `api/` + `typert`（21,222 行）、website、Python SDK、native/landlock、e2b、lsp、terminal PTY、sandbox 后端、hooks 桥、session-query、spill、attachment、storage、仓库门禁与生成器 | 约 14 万行 | 带你读懂设计与取舍，不重写 |
+| **骨架** | `core/`（session、tools、agent、agent-loop、system-prompt、scope）、`llm/` 三件套、`session/` 持久化与投影、fs / shell / subprocess 三条 seam、interaction 权限、compaction、subagent、skill、plan、todo、guard、context、credentials、settings、boot、bundle、util | **31 个包 / 62,400 行**（rc.8） | 逐行复刻到与源码一致 |
+| **框架** | `vendor/cordis` | 6,493 行（rc.8；0.2 的 `src/` 是 2,696 行） | 先自己写迷你版跑通，再对照读全量，不逐行抄 |
+| **外围** | `client/` Web GUI（45,536 行）、`host/` + `api/` + `typert`（21,222 行）、website、Python SDK、native/landlock、e2b、lsp、terminal PTY、sandbox 后端、hooks 桥、session-query、spill、attachment、storage、仓库门禁与生成器 | 约 14 万行（rc.8） | 带你读懂设计与取舍，不重写 |
+
+> 规模数字是参考版本还在 rc.8 时统计的。升到 0.2.0-rc.2 之后 dsh 整体从 226 个包长到 316 个（`src/` 从 24 万行到 41 万行），骨架里变化最大的是 `session/`（13 个包 → 20 个，多出来的主要是会话格式和它的升级链），外围里变化最大的是 `client/`。重新划一遍骨架边界留到阶段 21（骨架对齐）去做。
 
 参照系：骨架的 31 个包，正好和 opencode 整个项目的包数一样多——**这门课的"骨架"体量等于 OpenCode From Scratch 的全部目标**。外围之所以只读，不是因为它不重要，而是因为重写 4.5 万行 Web 前端学不到 agent 架构，读它的分层却能。
 
@@ -160,7 +162,7 @@ DshFromScratch/
 | agent loop | `dsh/packages/core/agent-loop/src/agent.ts` |
 | 工具注册与执行管线 | `dsh/packages/core/tools/src/index.ts` |
 | session 事件日志 | `dsh/packages/core/session/src/index.ts` |
-| 一个装配好的最小 agent | `dsh/packages/examples/agent-spine-demo/README.md` |
+| 一个装配好的最小 agent | `dsh/packages/bundle/sdk-minimal/cordis.patch.yml`（一份完整、不依赖 base 的插件清单） |
 
 ## 给同样想学的人
 

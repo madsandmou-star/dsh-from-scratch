@@ -161,7 +161,7 @@ dsh 用 `Service.init` 和 `check` 谓词来缩小这个窗口，但**窗口本�
 
 ## 与 dsh 的差距
 
-规模：我们 **337 行**（`cordis.ts`）对着 `dsh/vendor/cordis/src/` 的 **2693 行**。
+规模：我们 **337 行**（`cordis.ts`）对着 `dsh/vendor/cordis/src/` 的 **2696 行**。
 
 | | 我们的 | dsh 的 | 哪个阶段补齐 |
 |---|---|---|---|
@@ -202,7 +202,7 @@ interface Context {
 
 ```ts
 interface Events {
-  /** Allow, deny, or ask before dispatch. `next()` delegates to allow; … */
+  /** Allow, deny, cancel, or ask before dispatch. `next()` delegates to allow; … */
 ```
 
 那是阶段 10 的内容。**一个包声明的不只是"我提供什么服务"，还有"我发什么事件、别人能在哪里插进来"**——服务是"能调用什么"，事件是"能改变什么"。

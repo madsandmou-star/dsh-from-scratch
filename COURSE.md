@@ -33,7 +33,7 @@
   - `console.log` 打点的正确姿势（打值、打类型、打时机）
   - 断点调试：`node --inspect-brk --import tsx`，VS Code attach
   - 三类典型故障的定位手法：拿不到值 / 拿到的类型不对 / 根本没执行到
-  - 对照 dsh：为什么 dsh 里到处是 runtime invariant（`dsh/packages/<组>/<包>/src/invariant.ts`）
+  - 对照 dsh：为什么 dsh 在运行时检查自己的不变量（`dsh/packages/core/agent-loop/src/invariant.ts`）
 
 - **0.4 [阶段验收](docs/00-env-basics/04-stage-review/01-stage-review.md)**
   - 验收清单 + 工程思维总结：为什么 dsh 选 TypeScript、选 pnpm workspace，而课程选 npm
@@ -56,7 +56,7 @@ src/hello.ts        # 唯一的代码：一个能跑、能被断点停住的文�
   - 一次模型调用需要哪四个东西：baseURL、模型 id、密钥、messages
   - 为什么配置里只放**环境变量名**而不是密钥本身
   - 设计我们的 `dsh-learn.json`，写出 `src/config.ts`
-  - 对照 dsh：`dsh/packages/credentials/`（凭据引用 seam）与 `DeepSeekConnectionOptions.apiKeyEnv`
+  - 对照 dsh：`dsh/packages/credentials/`（凭据引用 seam）与 `llm-deepseek-api-key` 的 `apiKeyEnv`
 
 - **1.2 [先用 curl 打通](docs/01-minimal-agent/02-messages-curl/01-messages-curl.md)**
   - LLM API 的本质就是一次 POST：`/chat/completions`
@@ -69,7 +69,7 @@ src/hello.ts        # 唯一的代码：一个能跑、能被断点停住的文�
   - `src/types.ts`：先给 `Message` 一个类型
   - `src/llm.ts`：`chat(messages)` —— 发请求、判错、取 `choices[0].message.content`
   - 教 debug：请求失败时先看状态码还是先看响应体
-  - 对照 dsh：`dsh/packages/llm/llm-deepseek/src/adapter.ts` 为什么被称作 transport-only
+  - 对照 dsh：`dsh/packages/llm/llm-deepseek/src/adapter.ts` 为什么只是一层传输
 
 - **1.4 [多轮对话](docs/01-minimal-agent/04-multi-turn/01-multi-turn.md)**
   - 模型没有记忆：所谓"多轮"就是每次把整个历史重发一遍
@@ -123,7 +123,7 @@ DshFromScratch/
 
 - **2.4 [阶段验收](docs/02-streaming/04-stage-review/01-stage-review.md)**
   - 验收清单 + 工程思维总结：为什么 dsh 把流式当默认而不是选项
-  - 对照 dsh：`sse.ts` 为什么把"缺 `[DONE]`"当成 `STREAM_CLOSED` 错误；`translate.ts` 的有状态块装配；`StreamChunk` 七种类型；`assistant/chunk` 事件为什么必须落盘
+  - 对照 dsh：`translate.ts` 为什么把"缺 `message_stop`"当成 `STREAM_CLOSED` 错误；有状态块装配；`StreamChunk` 七种类型；整条流为什么要压紧存进 `assistant/message`
 
 #### 阶段产出
 
@@ -296,7 +296,7 @@ src/types.ts       # 改：ToolCall、tool role
   - 写入批处理（200ms）管性能，语义检查点管正确性——两个机制两件事
   - 检查点只有两处：发请求之前（因果顺序）、跑工具之前（`tool/call` 必须先为真）
   - 6.1 那条 `TOOL_OUTCOME_UNKNOWN` 到这里才真的成立：**没落盘的事件等于没发生过**
-  - 对照 dsh 的 `DEFAULT_WRITE_BATCH_MAX_DELAY_MS` 与 `session-checkpoint-policy`
+  - 对照 dsh 的 `LIVE_WRITE_BATCH_MAX_DELAY_MS` 与 `session-checkpoint-policy`
 
 - **6.4 [坏掉的日志怎么读回来](docs/06-session/04-repair/01-repair.md)** ✅
   - 痛点：末尾半行 JSON 让 `--resume` 打不开，一次崩溃报废整个会话
@@ -309,7 +309,7 @@ src/types.ts       # 改：ToolCall、tool role
 - **6.5 [阶段验收](docs/06-session/05-stage-review/01-stage-review.md)** ✅
   - 四节课是同一个问题的四层：**"发生过什么"怎么才能真的可信**
   - 七条工程判断（拆结构看几个冲突的理由、格式决定失败粒度、默认值选代价小的一边…）
-  - 对照 `dsh/packages/core/session/`、`dsh/packages/session/`：614 行 vs 3164 + 9414 行
+  - 对照 `dsh/packages/core/session/`、`dsh/packages/session/`：614 行 vs 3421 + 17863 行
 
 ## 第二阶段 · 演进成 dsh
 
@@ -343,7 +343,7 @@ src/types.ts       # 改：ToolCall、tool role
 - **7.4 [阶段验收](docs/07-cordis/04-stage-review/01-stage-review.md)** ✅
   - 三节课拆的是同一个方向：部件自己声明贡献，入口只列清单
   - 六条工程判断（重复是症状依赖方向才是病、绑定隔离 ≠ 值隔离、过渡态要留标记…）
-  - 对照 `dsh/vendor/cordis/`：132 行 vs 2693 行
+  - 对照 `dsh/vendor/cordis/`：132 行 vs 2696 行
 
 ### 阶段 8：服务与 inject
 
@@ -386,7 +386,7 @@ src/types.ts       # 改：ToolCall、tool role
   - 四节课解放了四样东西：可见性、顺序、异步、收尾；每一样之前都由一个把约束
     藏在结构里的权宜之计顶着（嵌套的树形、数组的顺序、"中间没有 await"、"记得调 close"）
   - 六条工程判断（同一条规则一次是坑一次是工具、约束要写成代码、默认值看情况正不正常…）
-  - 对照 `dsh/vendor/cordis/`：337 行 vs 2693 行，五行差距全指向阶段 9
+  - 对照 `dsh/vendor/cordis/`：337 行 vs 2696 行，五行差距全指向阶段 9
 
 ### 阶段 9：可逆注册
 
@@ -486,7 +486,7 @@ src/types.ts       # 改：ToolCall、tool role
 >
 > **引入**：headless / ACP / JSON-RPC / Web 各自只是一个出口，UI 由 `session/event` 驱动。
 >
-> **对照**：`dsh/examples/`、`dsh/packages/sdk/`、`dsh/packages/acp/`。
+> **对照**：`dsh/packages/bundle/sdk-minimal/`（最小的完整装配）、`dsh/packages/sdk/`、`dsh/packages/acp/`。
 
 ### 阶段 19：守住架构
 
@@ -494,7 +494,7 @@ src/types.ts       # 改：ToolCall、tool role
 >
 > **引入**：单元测试、快照重放、runtime invariant、仓库门禁各自防住哪一类回归。
 >
-> **对照**：[docs/testing.md](dsh/docs/testing.md)、`dsh/packages/<组>/<包>/src/invariant.ts`、`scripts/`。
+> **对照**：[docs/testing.md](dsh/docs/testing.md)、`dsh/packages/core/agent-loop/src/invariant.ts`、`scripts/`。
 
 ### 阶段 20：自我修改
 
@@ -502,7 +502,7 @@ src/types.ts       # 改：ToolCall、tool role
 >
 > **引入**：agent 检视并挂载自己写的插件。
 >
-> **对照**：`dsh/packages/extensions/`、`pnpm run demo:cordis`。
+> **对照**：`dsh/packages/extensions/`、`dsh/packages/boot/plugin-manager/`。
 
 ### 毕业设计
 

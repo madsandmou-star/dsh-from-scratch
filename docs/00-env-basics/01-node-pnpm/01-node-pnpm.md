@@ -9,7 +9,7 @@
 | 角色 | 它负责什么 | 本课程 / dsh 的具体情况 |
 |---|---|---|
 | **Node** | 运行 JavaScript 的运行时 | 两边都要 `^22.19 \|\| >=24`（见各自 `package.json` 的 `engines`） |
-| **包管理器** | 装依赖、跑 `scripts` | 课程用 npm（只装一个 tsx）；dsh 用 pnpm，因为它要管 200 多个包的 workspace |
+| **包管理器** | 装依赖、跑 `scripts` | 课程用 npm（只装一个 tsx）；dsh 用 pnpm，因为它要管 300 多个包的 workspace |
 | **tsx** | 让 Node 能直接加载 `.ts` | 两边都用，`node --import tsx` 启用 |
 
 多出来的这一层是 TypeScript 造成的：Node 只认 JavaScript，而我们写的是 TypeScript。
@@ -73,7 +73,7 @@ node --experimental-strip-types src/hello.ts
 
 ## workspace：一个仓库里的几十个包
 
-dsh 不是一个包，是 200 多个包住在一个仓库里（按 `dsh/packages/<组>/<包>/` 分成 50 个包组），彼此用包名互相引用，比如 `import ... from '@deepseek-ai/dsh-llm'`。这种布局叫 **monorepo**，pnpm 用 `dsh/pnpm-workspace.yaml` 声明哪些目录算成员：
+dsh 不是一个包，是 300 多个包住在一个仓库里（按 `dsh/packages/<组>/<包>/` 分成 55 个包组），彼此用包名互相引用，比如 `import ... from '@deepseek-ai/dsh-llm'`。这种布局叫 **monorepo**，pnpm 用 `dsh/pnpm-workspace.yaml` 声明哪些目录算成员：
 
 ```yaml
 packages:

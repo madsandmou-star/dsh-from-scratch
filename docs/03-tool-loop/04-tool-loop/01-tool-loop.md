@@ -210,9 +210,9 @@ try { await runTurn() } catch (error) {
 
 dsh 有一个专门的模块处理这件事：`dsh/packages/core/session/src/repair.ts`，模块注释写着：
 
-> Crash-recovery repair for an interrupted session log. It **preserves a fully written final turn** and **supplies the missing tool, step, and turn boundaries** needed to resume with a provider-valid transcript.
+> Pending tool-result recovery shared by failed live steps, interrupted logs, and fork seeds. Tail repair **preserves closed steps** and **supplies only missing tool results and lifecycle boundaries**, with cause-specific retry guidance.
 >
-> （对被打断的会话日志做崩溃恢复：**保留已完整写入的最后一个 turn**，并**补上缺失的工具、step、turn 边界**，好让恢复后的对话记录对供应商合法。）
+> （给"没等到结果的工具调用"做恢复，失败的实时 step、被打断的日志、分叉出来的会话共用这一套。尾部修复**保留已经闭合的 step**，**只补缺失的工具结果和生命周期边界**，并按原因给出不同的重试提示。）
 
 它导出两个恢复码：
 
@@ -224,9 +224,13 @@ export const TOOL_NOT_STARTED = 'TOOL_NOT_STARTED'
 export const TOOL_OUTCOME_UNKNOWN = 'TOOL_OUTCOME_UNKNOWN'
 ```
 
-而 `interruptedTurnClosers()` 的说明是：
+崩溃恢复的入口是 `interruptedTurnClosers()`：
 
-> 返回一组确定性的合成事件来闭合一个开着的尾部 turn。**未配对的调用先收到错误结果**，随后是一个 `step/end` 和一个 interrupted 的 `turn/end`；序号接着日志继续，时间戳复用最后一条真实事件。日志本身平衡或为空时不返回任何事件。
+> Crash-recovery entry point: synthetic closers that balance a persisted log whose tail turn was interrupted.
+>
+> （崩溃恢复入口：生成一组合成的收尾事件，把一个尾部 turn 被打断的日志补平。）
+
+补的顺序在同文件的 `results()` 里有一句注释说明：**先给每个没配对的调用补一条错误结果，再关 step**——"providers reject dangling assistant calls"（供应商会拒绝悬空的助手调用）。补出来的事件序号接着日志往下编，时间戳复用最后一条真实事件；日志本来就平衡时返回空数组。
 
 翻译成人话：**dsh 不删任何东西，它往日志里补几条"这次调用失败了"的合成结果，把非法状态补成合法状态。**
 

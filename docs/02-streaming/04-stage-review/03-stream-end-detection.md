@@ -17,7 +17,7 @@ for await (const payload of parseSse(response.body)) {
 if (!sawDone) throw new Error('流在收到 [DONE] 之前就结束了')   // ← 回头看
 ```
 
-**记一个标记 → 等循环退出 → 回头检查。** 所有"必须出现的终止标记"类协议都是这个形状。dsh 的 `sse.ts` 同构：`yield data; if (data === DONE) return`，循环外 `throw new LlmError(..., 'STREAM_CLOSED')`。
+**记一个标记 → 等循环退出 → 回头检查。** 所有"必须出现的终止标记"类协议都是这个形状。dsh 的 `translate.ts` 同构：终止标记换成了 `message_stop` 事件（2.1 讲过），见到它那一支在循环里 `return`，循环外是 `throw new LlmError('DeepSeek Messages stream ended before message_stop', 'STREAM_CLOSED')`。
 
 ### "流结束"到底是哪个物理事件
 
@@ -50,39 +50,38 @@ timeout 8 sh -c "printf '你好\n' | node --import tsx src/index.ts"
 `dsh/packages/llm/llm-deepseek/src/adapter.ts`：
 
 ```ts
-using watchdog = idleWatchdog(upstream, connection.streamIdleTimeoutMs, STREAM_IDLE_TIMEOUT_CODE)
+using watchdog = idleWatchdog(signal, connection.streamIdleTimeoutMs, 'MESSAGES_IDLE')
+const iterator = this.request(options, connection, watchdog.signal, () => { watchdog.pulse() })
 ...
-const result = await watchdog.next(iterator)
+const next = await watchdog.next(iterator)
 ```
 
-`idleWatchdog` 的 JSDoc 点出了它和"总超时"的关键区别：
+`idleWatchdog`（`dsh/packages/util/timeout/src/index.ts`）的 JSDoc 点出了它和"总超时"的关键区别：
 
-> 计时器**只在 `next()` 未完成期间存在**，所以**消费者的思考时间不算作供应商的空闲时间**。
+> The timer exists only while `IdleWatchdog.next` is outstanding, so consumer think time does not count as provider idle time.
+>
+> （计时器**只在 `next()` 未完成期间存在**，所以**消费者的思考时间不算作供应商的空闲时间**。）
 
 这个区分很实在：如果用总超时，一次长回答（模型正常吐 3 分钟）会被误杀；如果计时器把消费者处理时间也算进去，UI 渲染慢或落盘慢也会误杀。**空闲超时只问一件事：距离上一块数据到现在，对端沉默了多久。**
 
-还有一个 `pulse()`，适配器把它作为回调传进请求：
+还有一个 `pulse()`，就是上面传进 `this.request()` 的那个回调。它一路传到 `parseSse(body, activity)`：
 
 ```ts
-() => { watchdog.pulse() }
+new EventSourceParserStream({ onComment: activity })
 ```
 
-SSE 规范允许 `:` 开头的**注释行**当心跳——它不产生任何数据，但证明对端还活着。收到注释就 `pulse()` 重新计时。（2.1 提过 `sse.ts` 的注释"只通过 transport-activity 回调报告"，用途就在这里。）
+SSE 规范允许 `:` 开头的**注释行**当心跳——它不产生任何数据，但证明对端还活着。收到注释就 `pulse()` 重新计时；`parseSse()` 的 JSDoc 把这个参数写成 "pulse the idle watchdog for events and heartbeat comments"（事件和心跳注释都会拍一下看门狗）。
 
 ### 超时之后，错误要能被区分
 
 ```ts
-if (timeoutOf(watchdog.signal, STREAM_IDLE_TIMEOUT_CODE) !== undefined) {
-  throw new LlmError(`DeepSeek stream idle timeout after ${...}ms`, 'TIMEOUT', { cause: error })
-}
-if (options.signal?.aborted) {
-  throw new LlmError('DeepSeek request aborted by caller', 'ABORTED', { cause: error })
-}
+if (timeoutOf(watchdog.signal, 'MESSAGES_IDLE') !== undefined) throw new LlmError('DeepSeek Messages stream idle timeout', 'TIMEOUT', { cause: error })
+if (options.signal?.aborted) throw new LlmError('DeepSeek Messages request aborted', 'ABORTED', { cause: error })
 ```
 
 看门狗的 signal 是**上游取消**和**超时**融合出来的（`AbortSignal.any`），所以中断之后必须回头问："到底是谁赢了？"`timeoutOf()` 就是干这个的。
 
-分成 `TIMEOUT` 和 `ABORTED` 两个码，是 1.3 讲过的"错误分类"的又一次兑现：**超时可以重试，用户取消绝对不能重试。**
+分成 `TIMEOUT` 和 `ABORTED` 两个码，是 1.3 讲过的"错误分类"的又一次兑现：**超时可以重试，用户取消绝对不能重试。** 2.4a 提过的 `DEFAULT_RETRYABLE_CODES` 里有 `TIMEOUT`，没有 `ABORTED`。
 
 
 ## 教 debug：怀疑"流没正常结束"时看什么

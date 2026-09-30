@@ -230,7 +230,7 @@ dsh 里有**两套**写文件的工具，这本身就是一个值得看的决定
 | `dsh/packages/fs/tool-fs/` | `read` / `write` / `edit` | Claude Code 风格，一个动作一个工具 |
 | `dsh/packages/fs/tool-str-replace-editor/` | `str_replace_editor` | Anthropic computer-use 风格，一个工具带 `command` 参数分派到 `view`/`create`/`str_replace`/`insert` |
 
-**为什么留两套？** 因为不同的模型对不同的工具形态熟悉程度不一样——工具描述是提示词，而模型在训练里见过哪一种，直接影响它的调用准确率。dsh 把这变成了可组合的插件：换一套工具就是换一个包，不用改 agent loop。
+**为什么留两套？** `tool-str-replace-editor` 的 README 说它适合"the model should edit files through the familiar `view`/`create`/`str_replace`/`insert` command vocabulary"（模型该用它**熟悉的**那套命令词汇编辑文件）的场合。工具描述是提示词，模型在训练里见过哪一种形态，会影响它调得准不准。dsh 0.2 的默认装配用 `read`/`write`/`edit`，`str_replace_editor` 要显式加（4.5 会看到怎么加）——换一套工具就是换一个包，不用改 agent loop。
 
 ### 唯一匹配：两套都做了同样的选择
 
@@ -265,7 +265,13 @@ if (args.old_string === args.new_string) throw new Error('old_string and new_str
 
 **结构化返回值 + diff 卡片。** 我们的 `edit` 返回 `已修改 demo.ts（替换了 32 字符 → 32 字符）`——**同一句话既给模型看，又给人看**。dsh 把两者分开了：`execute` 返回 `{ path, before, after }`，`render()` 从中生成给模型的那句英文，`presentationMeta()` 从中算出 diff 给界面画卡片。这就是 AGENTS.md 里那条"**工具的 UI 呈现意图是设计的一部分，要一开始就定**"。阶段 12 讲 UI 时会回到这里；现在只要记住一件事：**一旦你的返回值同时要服务模型和界面，字符串就不够用了。**
 
-`replace_all` 我们故意没做。它是唯一匹配的逃生口，但装上它就会削弱这一课的核心：**模型会倾向于直接用 `replace_all` 绕开"要唯一"的约束**，然后改错地方。dsh 的做法是保留它但默认关闭，并在 system prompt 里明确写"先试着让 old_string 更具体，不行才用 replace_all"（见 `tool:edit` 那段 section 文本）。
+`replace_all` 我们故意没做。它是唯一匹配的逃生口，但装上它就会削弱这一课的核心：**模型会倾向于直接用 `replace_all` 绕开"要唯一"的约束**，然后改错地方。dsh 的做法是保留它但默认关闭（参数描述写着 "Defaults to false; when false, old_string must appear exactly once."），并且把"先让 old_string 更具体"放在**匹配多处时的报错**里，而不是提示词里——`dsh/packages/fs/fs-local/src/fsio.ts`：
+
+```
+old_string matched ${replacements} times in "${displayPath}"; provide a more specific old_string or set replace_all to true
+```
+
+**先建议更具体，再提 `replace_all`**——顺序本身就是引导。它只在模型真的撞上多处匹配时出现，平时不占提示词。`tool:edit` 那段 section 文本现在只说一件事："先 read 再 edit"。
 
 ---
 

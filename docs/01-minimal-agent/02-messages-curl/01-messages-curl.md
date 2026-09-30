@@ -81,7 +81,7 @@ curl -v ...     # 连 TLS 握手、请求头一起打印（怀疑是代理/网�
 
 dsh 里对应的这一层是 `dsh/packages/llm/llm-deepseek/src/serialize.ts`——把内部的消息表示序列化成这个 wire 格式。它比我们复杂的地方在于：内部消息不只有文本（还有图片、思维链、工具调用），而 wire 格式又必须严格符合供应商的要求，所以中间需要一次显式的翻译。
 
-而 `dsh/packages/llm/llm/src/message.ts` 定义的是**内部**消息词汇——注意 dsh 并不直接把 OpenAI 的格式当成自己的模型。这一层区分的价值在阶段 8 会兑现：换一个协议完全不同的供应商时，需要改的只有翻译层。
+而 `dsh/packages/llm/llm/src/message.ts` 定义的是**内部**消息词汇——注意 dsh 并不直接把某家供应商的格式当成自己的模型。这一层区分的价值 dsh 自己已经兑现过一次：0.1 时它走的是和我们一样的 OpenAI 兼容 `/chat/completions`，0.2 换成了 DeepSeek 的 Anthropic 兼容 Messages 接口——线上格式整个换了，而负责"内部词汇 ↔ 线上格式"的正是 `llm-deepseek` 里的 `serialize.ts`（出去）和 `translate.ts` / `sse.ts`（回来）。agent 循环只认 `message.ts` 的内部词汇和 `StreamChunk`，它不知道线上是哪一种协议。
 
 ---
 

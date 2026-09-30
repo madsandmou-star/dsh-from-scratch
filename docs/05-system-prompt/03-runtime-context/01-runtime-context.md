@@ -243,17 +243,22 @@ lastSentSnapshot = undefined
 dsh 的解法是根本不留这个变量：
 
 ```ts
-/** `undefined` 表示从来没有过快照；`null` 表示当前没有保留任何快照。 */
-private retained: { seq: number; text: string | undefined } | null | undefined
+/** `undefined` means no snapshot ever existed; `null` means none is retained. */
+private retained: { seq: SessionSeq; text: string | undefined } | null | undefined
 
 ctx.on('session/event', (subject, event) => {
+  if (subject !== session) return
   if (event.type === 'user/message' && isOwned(event.data)) {
     this.retained = { seq: event.seq, text: textOf(event.data) }
-  } else if (this.retained && isReplacementSurfaceEvent(event) && ...) {
+  } else if (this.retained
+    && isReplacementSurfaceEvent(event)
+    && event.sourceEventSeqs?.includes(this.retained.seq) === true) {
     this.retained = null
   }
 })
 ```
+
+（`dsh/packages/core/agent-loop/src/runtime-context.ts`。`undefined` 表示从来没有过快照；`null` 表示当前没有保留任何快照——比如那条快照被压缩替换掉了。）
 
 **它从权威事件流里推导"上次发了什么"**，而不是自己记一份。构造时先把已有日志倒着扫一遍恢复状态，之后跟着 `session/event` 更新。
 
@@ -288,8 +293,9 @@ console.dir(messages.slice(-3), { depth: null })   // 在每次 chatStream 之�
 | "上次发了什么" | 一个变量 | 从 `session/event` 推导 |
 | 插入位置 | 历史末尾 | `agent/pre-step` waterfall 的默认决定：`[...claimed, context]` |
 | 还有别的产生方式吗 | 没有 | 有——插件可以直接挂 `agent/pre-step` 自己追加（`time-context` 就是，它还带自己的刷新间隔） |
+| system prompt 本身 | 每次现拼，不留痕迹 | **也进日志**：一条 `system/message` 事件（见下面 ③） |
 
-两处值得展开：
+三处值得展开：
 
 **① 保留每段的名字。** dsh 的快照不是一个字符串，是一串 `{ name, text }`：
 
@@ -300,6 +306,16 @@ source: { kind: 'plugin', plugin: SOURCE, form: 'snapshot', sections }
 界面拿到这条消息时，能说清"这一段来自 sandbox 策略、那一段来自审批策略"，而不用去反向切分那段拼好的散文。**又是 4.1 讲过的那条：一旦返回值要同时服务模型和界面，字符串就不够用了。**
 
 **② 插入点是一个 waterfall 的默认值。** `agent/pre-step` 的默认决定是 `{ kind: 'enter', messages: [...claimed, context] }`——也就是说，**插件可以改这个决定**：可以在快照前面再插点东西，也可以整个拒绝这一步（`kind: 'reject'`）。我们那句 `appendContextSnapshot()` 是写死的，dsh 那句是一个可以被接管的默认值。
+
+**③ dsh 0.2 连 system prompt 也落日志。** 这一课开头说"一句写死的 persona 满足这条规矩，因为它在配置里不会变"——dsh 按规矩的原文办事："anything that reaches a model request must be reconstructable from the **session log**"——配置文件不是会话日志，它可以在两次运行之间被改，重放上个月的会话时，今天的配置代表不了当时。所以会话格式 v3（`dsh-v0.1.5-alpha.1`）加了 `system/message` 事件，把渲染好的 system prompt 作为日志里的第一个模型可见节点记下来。`dsh/packages/core/agent-loop/src/runtime-context.ts` 的模块注释说这个文件管"the two loop-owned surface messages the system prompt plugin forms: the system prompt (surface node 0 and any in-history replacement) and the dynamic runtime-context snapshot"（system prompt 插件产出的两种由循环负责的消息：system prompt 本身，和动态运行时快照）。
+
+system prompt 变了怎么办？同文件的 `SystemPromptProjection` 注释：
+
+> A capable continuing series appends changed nonempty text after the cached history. An incapable route, broken series, or cleared prompt instead normalizes the first system node and empties later active nodes.
+>
+> （如果供应商支持读历史中间的 system 消息、请求序列也没断，就把新的 system prompt **追加在已缓存的历史后面**；否则就改写第一个 system 节点，把后面那些清空。）
+
+前一半和我们这一课的快照是**同一个思路**：新的东西追加在后面，不动前缀，缓存不失效。只有供应商做不到时才退回到"改开头"。
 
 顺带一提，真实的 dsh 里"当前时间"**不走** `systemPrompt.context()`——它是一个独立的包 `dsh/packages/context/time-context/`，直接挂 `agent/pre-step`，因为它有自己的刷新节奏（不是每步都发，而是超过一个间隔才发）。**同一个位置有两条路：统一快照，和自己接管。** 前者简单，后者能带自己的策略。
 

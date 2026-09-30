@@ -297,12 +297,14 @@ tail -c 200 .dsh-learn/sessions/<id>.jsonl            # 末尾 200 字节，看�
 | 补齐 | 投影时即时补（6.1） | `interruptedTurnClosers()` 往日志里补**真实事件** | 补出来的也要落盘、要能被别的进程看到 |
 | 截断 | `truncate` + fsync | 同样，外加目录 fsync | POSIX 下目录项本身也要 fsync 才持久 |
 | 已知类型表 | 手写对象 + `Record<SessionEventType, true>` 保证完整 | 脚本生成 + `doc-sync` 验证新鲜度 | 事件表靠 declaration merging 散在几十个包里 |
-| 版本 | 不认识就拒绝 | 升级步骤链 + 内存视图转换 + migrate-on-continue | 真实用户有存量会话，不能让他们丢历史 |
+| 版本 | 不认识就拒绝 | 当前格式是 v4；更老的由 `session-format-v0-to-v1` … `v3-to-v4` 四个相邻升级包逐步升上来，更新的才拒绝 | 真实用户有存量会话，不能让他们丢历史 |
 
-那个"延迟判断"值得展开一句。dsh 的 `consumeEventLine()` 遇到坏行时不立刻抛：
+那个"延迟判断"值得展开一句。`dsh/packages/session/session-persistence-jsonl/src/format.ts` 里 `SessionLogScanner` 的 `consumeEventLine()` 遇到解析不了的行时，默认（非 `strict` 模式）不立刻抛：
 
 ```ts
-this.issue ??= new Error(`corrupt session log: unparsable committed event at line ${this.eventLine}`)
+const issue = new Error(`corrupt session log: unparsable committed event at line ${this.eventLine}`)
+if (this.recovery === 'strict') throw issue
+this.issue ??= issue
 return
 ```
 
@@ -310,12 +312,15 @@ return
 
 ```ts
 if (this.issue !== undefined) {
-  if (decoded.some(event => event.type === 'turn/end')) throw this.issue
+  if (typeof decoded === 'object' && decoded !== null
+    && (decoded as { type?: unknown }).type === 'turn/end') throw this.issue
   return
 }
 ```
 
 逻辑是：**坏点后面如果还有 `turn/end`，说明那段不是"崩溃时写了一半的尾巴"，而是一段本该完整的历史被破坏了**——那必须拒绝。如果后面没有 turn 结束标记，那整段就当崩溃尾巴丢掉。
+
+注意两段代码中间还夹着一步：`assertV4RowAdmission(decoded, KNOWN_SESSION_EVENT_TYPES)`，它的注释是 "Owned structural refusal must precede its recoverable-tail suppression"——**"这一行的结构根本不属于当前格式"要先判，判完才轮到"这是不是崩溃尾巴"**。和我们 `loadSession()` 里"版本先判，再往下读"是同一个顺序。
 
 这比我们的"一律拒绝"宽容，代价是需要 `turn/end` 这个边界事件——**我们的事件表里只有 `turn/start`，没有 `turn/end`**，所以做不了这个判断。这是一处真实的差距，会在阶段 12 补齐。
 

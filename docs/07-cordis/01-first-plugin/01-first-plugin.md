@@ -277,7 +277,7 @@ root
 
 ## 对照 dsh
 
-`dsh/vendor/cordis/src/` 一共 2693 行，我们这一版 80 行。差在哪：
+`dsh/vendor/cordis/src/` 一共 2696 行，我们这一版 80 行。差在哪：
 
 | | 我们的 | dsh 的 | 哪个阶段补齐 |
 |---|---|---|---|
@@ -289,7 +289,7 @@ root
 | 配置 | 原样传给 `apply` | `Config` schema 校验 + `intercept()` 分层合并 | 阶段 11 |
 | 应用怎么组合 | 代码里写 `ctx.plugin(...)` | **一个 `cordis.yml`**，loader 读它 | 阶段 11 |
 
-最后一行是终点的样子。dsh 的应用装配长这样（`dsh/packages/bundle/base/cordis.patch.yml`）：
+最后一行是终点的样子。dsh 教程第一章（`dsh/docs/cordis-tutorial/01-first-plugin.md`）里，整个应用的组合就是一个 `cordis.yml`：
 
 ```yaml
 - name: './hello.ts'
@@ -297,7 +297,9 @@ root
 
 **入口文件里一行框架代码都没有**——插件描述自己的贡献，`cordis.yml` 组合应用。教程原话：
 
-> 你的文件中没有框架启动代码：插件描述自己的贡献，`cordis.yml` 则组合应用。
+> 你的文件中没有框架启动代码：插件描述自己的贡献，`cordis.yml` 则组合应用。例如，`dsh` base 就是一份更长的插件组合，由部署 overlay 对它进行修补。
+
+那份"更长的插件组合"就是 `dsh/packages/bundle/base/cordis.patch.yml`，7.3 会看它的开头。
 
 我们现在离那儿还有四个阶段，但方向已经定了。
 

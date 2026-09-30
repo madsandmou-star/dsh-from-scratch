@@ -56,9 +56,9 @@ return await tool.execute(args)
 
 dsh 是三个 waterfall 事件。把它们的 JSDoc 摆在一起看，设计意图非常清楚：
 
-### `tools/pre-execute` —— 允许、拒绝，还是询问
+### `tools/pre-execute` —— 允许、拒绝、取消，还是询问
 
-> Allow, deny, or ask before dispatch. `next()` delegates to allow; **missing approval support turns `ask` into denial**. Async gates must observe `exec.signal`; the registry rechecks cancellation after they settle but never abandons their promise.
+> Allow, deny, cancel, or ask before dispatch. `next()` delegates to allow; `cancel` selects the canonical pre-dispatch cancellation result, and **missing approval support turns `ask` into denial**. Async gates must observe `exec.signal`; the registry rechecks cancellation after they settle but never abandons their promise.
 
 三个细节值得学：
 
@@ -68,7 +68,7 @@ dsh 是三个 waterfall 事件。把它们的 JSDoc 摆在一起看，设计意�
 
 ### `tools/execute` —— 环绕式包裹
 
-> Around-dispatch waterfall for timeout, retry, or metrics. `next()` returns a normalized result; **wrappers may change only `exec.signal`**, while call identity remains immutable. The registry **re-fuses the original caller signal before the body**, so replacement cannot detach caller cancellation.
+> Around-dispatch waterfall for timeout, retry, or metrics. `next()` returns a normalized result; **wrappers may change only `exec.signal`**, while call identity remains immutable. The registry **re-fuses the original caller signal before the body**, so replacement cannot detach caller cancellation; wrappers must still restore their signal and reach quiescence.
 
 这是三段里最精妙的一段：
 
@@ -90,7 +90,7 @@ dsh 是三个 waterfall 事件。把它们的 JSDoc 摆在一起看，设计意�
 | 执行超时 | 执行**期间** | 无 | `execute` 包裹器改 signal |
 | 输出过大 | 执行**之后** | 硬编码 50KB 截断 | `post-execute` 替换成 spill 引用 |
 | 遥测 / 日志 | 之后 | 无 | `post-execute` 监听器 |
-| 循环卫生（重复调用提醒） | 之前 | 无 | `guard` 包挂 `pre-execute` |
+| 循环卫生（重复调用提醒） | 之后 | 无 | `guard/repeat-tool-reminder` 挂 `post-execute` 记下，`agent/pre-step` 提醒 |
 
 **如果只有一个 `execute()` 函数**，这五个关注点只能：塞进函数体里（工具作者要懂权限和遥测）、或者塞进调用方（tool loop 变成一个什么都管的巨型函数）。
 

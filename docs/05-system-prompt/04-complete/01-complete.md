@@ -154,7 +154,7 @@ prompt.replace({ name: PERSONA_SECTION, ... })      // preset 覆盖时
 
 写错一个字母，`replace` 会抛"没有这个段落可替换"——**这比静默地多出一段人设好得多**。
 
-dsh 把这条写在常量的 JSDoc 里，说得很清楚：
+dsh 把这条写在常量的 JSDoc 里（它的常量叫 `PERSONA_PREFIX_SECTION`，值是 `'deployment:persona-prefix'`），说得很清楚：
 
 > Exported because a composition can replace this slot — an agent preset shadows the deployment's persona with its own — and **both sides naming the same section is what makes the replacement work rather than duplicate.**
 
@@ -163,15 +163,25 @@ dsh 把这条写在常量的 JSDoc 里，说得很清楚：
 `dsh/packages/preset/persona/src/index.ts` 里就是这么用的：
 
 ```ts
-import { PERSONA_ORDER, PERSONA_SECTION } from '@deepseek-ai/dsh-system-prompt'
+import { PERSONA_PREFIX_SECTION, PERSONA_SUFFIX_SECTION } from '@deepseek-ai/dsh-system-prompt'
 
 ctx.effect(() => ctx.systemPrompt.section({
-  name: PERSONA_SECTION,
-  order: PERSONA_ORDER,
-  text: config.text,
+  name: PERSONA_PREFIX_SECTION,
+  order: ctx.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA_PREFIX'),
+  text: config.prefix,
   ...(config.complete ? { complete: true } : {}),
 }), 'persona.section()')
+ctx.effect(() => ctx.systemPrompt.section({
+  name: PERSONA_SUFFIX_SECTION,
+  order: ctx.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA_SUFFIX'),
+  text: config.suffix ?? '',
+}), 'persona.suffix()')
 ```
+
+和我们比，dsh 0.2 多了两处：
+
+- **persona 是两个槽位**：前缀（order 0，排在所有工具说明前面）和后缀（order 10200，排在最后）。前缀是"你是谁"，后缀是"最后再叮嘱一句"。
+- **order 不再是各插件自己写的数字**，而是 `getSectionOrder('名字')` 去一张中央表（`dsh/packages/core/system-prompt/src/index.ts` 的 `SECTION_ORDERS`）里查：`HARNESS_IDENTITY: -1000`、`DEPLOYMENT_PERSONA_PREFIX: 0`、`TOOL_BASH: 1000`、`TOOL_EDIT: 1300`……`DEPLOYMENT_PERSONA_SUFFIX: 10200`。各插件只说"我是哪一类"，**谁排在谁前面由一个地方决定**，不会出现两个插件各自挑了同一个数字。
 
 **"槽位"就是一个约定好名字的位置。** 它不是语言特性，就是一个大家都同意去写的字符串——而把它变成导出常量，是让这个约定**能被编译器和 IDE 帮忙检查**的唯一办法。
 
@@ -240,6 +250,8 @@ dsh 的 persona preset 把两者都暴露成配置项：
 complete: z.boolean().default(false),
 includeRuntimeContext: z.boolean().default(true),
 ```
+
+（后一个在 dsh 里对应的方法叫 `suppressRuntimeContext()`，就是我们的 `suppressContext()`。）
 
 **两个正交的关注点就该是两个开关。** 把它们合成一个"精简模式"会让第二、三行那两种组合变得不可表达。
 

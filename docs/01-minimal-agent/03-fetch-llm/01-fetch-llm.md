@@ -159,7 +159,7 @@ export async function chat(messages: Message[], config: Config & { apiKey: strin
 | 失败 | 一个 Error | `LlmError` + 分类码（上下文超限、配额耗尽……） + 重试策略 | 上层要能区别对待"重试有用"和"重试没用" |
 | 密钥 | 启动时取一次 | 每次请求现取 | 配置变更立刻生效 |
 
-dsh 把这个适配器明确定义为 **transport-only**（源码 JSDoc 里就是这么写的）。我们现在把"解析配置"和"发请求"混在一起了——阶段 8 会把它们拆开，那时你会看到 dsh 那条"默认值必须是一次显式的 resolve 步骤，不能是 `run()` 里藏着的 `?? default`"的规矩解决的是什么问题。
+dsh 把这个适配器定义为一层**传输**：`adapter.ts` 的模块注释是 "Direct Messages transport with one cancellable lifecycle per model request."（直连 Messages 接口的传输层，每次模型请求一个可取消的生命周期）。我们现在把"解析配置"和"发请求"混在一起了——阶段 8 会把它们拆开，那时你会看到 dsh 那条"默认值必须是一次显式的 resolve 步骤，不能是 `run()` 里藏着的 `?? default`"的规矩解决的是什么问题。
 
 ---
 

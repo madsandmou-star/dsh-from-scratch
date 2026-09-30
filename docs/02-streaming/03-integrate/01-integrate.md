@@ -175,7 +175,7 @@ for await (const payload of parseSse(response.body)) {
 
 用 `console.error`（stderr）而不是 `console.log`——因为 stdout 正在被打字机效果占用，混在一起没法看。想只看调试信息就 `node ... 2>&1 >/dev/null`，想只看正常输出就 `2>/dev/null`。
 
-**把诊断输出和产品输出分到不同的流，是 CLI 程序的基本功。** dsh 对这条更严格：agent-spine 里连 `timer` 插件都被特意注明"不往 stdout 写任何东西"，因为 stdout 是 ACP/JSON-RPC 的协议通道，混进一个字节整个协议就废了。
+**把诊断输出和产品输出分到不同的流，是 CLI 程序的基本功。** dsh 对这条更严格：`dsh/packages/bundle/sdk-app/cordis.patch.yml` 第一行就写着 "Stdout belongs exclusively to JSON-RPC."（stdout 只属于 JSON-RPC），ACP 那份装配也一样——stdout 是协议通道，混进一个字节整个协议就废了。
 
 ## 对照 dsh：它的流里不只有文本
 
@@ -188,7 +188,7 @@ for await (const payload of parseSse(response.body)) {
 | 怎么知道一块结束了 | 不知道 | `block-end` 显式事件 | 不用靠猜"参数收全了没有" |
 | 结束之后 | 生成器 return | `finish` 之后**保证不再有任何 chunk** | 这是一条协议不变量，下游可以放心地把它当终点 |
 
-`dsh/packages/llm/llm-deepseek/src/translate.ts`（185 行）干的就是把 DeepSeek 的 wire chunk 翻译成这套内部协议——一个有状态的块装配器。阶段 3 我们会手写它的最小版本。
+`dsh/packages/llm/llm-deepseek/src/translate.ts`（166 行）干的就是把 DeepSeek Messages 接口的线上事件翻译成这套内部协议——一个有状态的块装配器。阶段 3 我们会手写它的最小版本。
 
 
 ---

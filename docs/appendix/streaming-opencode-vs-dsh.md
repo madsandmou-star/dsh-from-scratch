@@ -1,10 +1,10 @@
 # 附录：流式的四段链路，opencode 与 dsh 的对比
 
-> SSE 解析 → 内存状态 → 落盘 → 用户可见，两边在**每一段**都做了不同的选择。全部结论来自现场读源码（opencode `v1.18.20`，dsh `0.1.0-rc.8`）。
+> SSE 解析 → 内存状态 → 落盘 → 用户可见，两边在**每一段**都做了不同的选择。全部结论来自现场读源码（opencode `v1.18.20`，dsh `0.2.0-rc.2`）。这篇最早是对着 dsh `0.1.0-rc.8` 写的；dsh 在两个版本之间改了落盘这一段，改动本身很有教学价值，下面会单独讲。
 
 ## 一句话总结
 
-**dsh 把流的每一个碎片当成事实记录下来；opencode 把碎片当成过场，只记录完整值。**
+**两边都把流的碎片当成过场，实时广播、不单独落盘；区别在收尾那条记录：opencode 只记完整文本，dsh 把整条带时间的碎片流一起装进去。**
 
 ## ① SSE 解析：`[DONE]` 的地位完全相反
 
@@ -23,15 +23,21 @@ export const sseFraming = (bytes) =>
 
 `framing.ts` 的注释把 `[DONE]` 归类为 **keep-alive**：「UTF-8 decode the body, run the SSE channel decoder, **drop empty / `[DONE]` keep-alives**」。
 
-dsh（`sse.ts`）：`[DONE]` 是**协议终止符**，缺了就抛 `LlmError('STREAM_CLOSED')`——「截断，这次模型调用不可信」。
+dsh 0.2 已经不走 OpenAI 协议了：它连的是 DeepSeek 的 Anthropic 兼容 Messages 接口，那里根本没有 `[DONE]`，终止标记是一个有名字的 `message_stop` 事件。`translate.ts` 循环外那一行：
+
+```ts
+throw new LlmError('DeepSeek Messages stream ended before message_stop', 'STREAM_CLOSED')
+```
+
+（0.1 时 dsh 走 OpenAI 协议，`sse.ts` 把 `[DONE]` 当终止符，缺了同样抛 `STREAM_CLOSED`——判断没变，只是标记换了。）
 
 | | opencode | dsh |
 |---|---|---|
-| `[DONE]` | 噪音，过滤掉 | 终止符，缺失即错误 |
-| 判断流是否完整 | 靠协议层的 finish 事件 | 靠 `[DONE]` + finish 双重 |
-| 分帧实现 | Effect `Stream.pipeThroughChannel(Sse.decode())` | `eventsource-parser` + 手写 `[DONE]` 语义 |
+| 终止标记 | `[DONE]` 当噪音过滤掉 | `message_stop`，缺失即 `STREAM_CLOSED` |
+| 判断流是否完整 | 靠协议层的 finish 事件 | 靠 `message_stop` 到达时"所有块已关闭、有停止原因"（否则 `MALFORMED_RESPONSE`） |
+| 分帧实现 | Effect `Stream.pipeThroughChannel(Sse.decode())` | `eventsource-parser` + 手写终止语义 |
 
-两边都没手写分帧（都用库），但**对同一个字节串赋予了不同的语义地位**。dsh 多一道检查，代价是要处理"某些兼容实现不发 `[DONE]`"的现实；opencode 少一道检查，代价是纯传输截断更难被当场识别。
+两边都没手写分帧（都用库）。**dsh 对"结束"要求一个显式标记，并且在标记到达时再核对一遍状态**；opencode 少一道检查，代价是纯传输截断更难被当场识别。
 
 ## ② 内存状态：追加日志 vs 可变投影
 
@@ -67,39 +73,57 @@ export const Ended = Event.define({ type: "session.next.text.ended", ...options,
 
 `projector.ts` 也印证：只投影 `Text.Started` / `Text.Ended`，`Text.Delta` 根本没有 projector。
 
-dsh 则相反——`assistant/chunk` 是**正经的 durable session 事件**：
+dsh 0.2 的做法和它**一半相同**：碎片也是 live-only，走的是进程内的 `agent/assistant-stream` 事件（JSDoc 原话："Chunk frames are transient"）。**另一半不同**：收尾那条 `assistant/message` 不只带完整消息，还带着整条流：
 
 ```ts
-/** Raw stream chunk — token-level replay fidelity. */
-'assistant/chunk': { turn: number; step: number; chunk: StreamChunk }
+/** Exact timed model stream, compacted without joining delta boundaries. */
+stream: AssistantStreamRecord[]
 ```
 
-| | opencode | dsh |
+每个增量的原文和到达时刻都在里面，能原样还原（2.4 讲过它怎么压紧）。
+
+| | opencode | dsh 0.2 |
 |---|---|---|
-| 每个 token 碎片 | **不落盘**（live-only） | **落盘**（`assistant/chunk`） |
-| 完整值 | `Text.Ended` 携带 `text` 全文 | `assistant/message` + `sourceEventSeqs` 指回碎片 |
-| 写入时机 | 投影器写 SQLite（Drizzle） | 攒批 write-behind（默认 200ms）+ 语义检查点 fail-closed flush |
-| 重放粒度 | 消息级 | **token 级** |
+| 每个 token 碎片 | **不单独落盘**（live-only） | **不单独落盘**（临时帧） |
+| 收尾记录 | `Text.Ended` 携带 `text` 全文 | `assistant/message` 携带完整消息 **和** 带时间的整条流 |
+| 失败的尝试 | 没有 `Ended` | `assistant/attempt`，同样带整条流，模型不可见 |
+| 写入时机 | 投影器写 SQLite（Drizzle） | 追加进内存日志，JSONL 后端攒批（200ms）+ 语义检查点 fail-closed flush |
+| 重放粒度 | 消息级 | **token 级**（只要那一步写完了） |
+
+### dsh 自己在这一段改过主意
+
+dsh 0.1 的 `assistant/chunk` 是**正经的 durable 事件**：每个增量一条，一次回答几百条。会话格式 v2（`dsh-v0.1.3-alpha.1`）删掉了它，换成上面这种"整步一条、流装在里面"的形状（`dsh/docs/persistence-changes/releases/dsh-v0.1.3-alpha.1.md`）。
+
+这次改动的得失可以说得很具体：
+
+| | 0.1（每块一条事件） | 0.2（每步一条事件） |
+|---|---|---|
+| token 级重放 | 有 | 有 |
+| 一次回答的事件数 | 几百 | 1 |
+| 进程在一步中间被杀 | 已到达的碎片在日志里 | **那一步的碎片全丢** |
+| 屏幕和日志的一致性 | 日志是广播的上游，屏幕上的必在日志里 | 靠结束帧对账（2.4a） |
+
+**dsh 保住了它真正在乎的东西（token 级重放），放弃了一个代价很高的附带性质（崩溃瞬间的碎片）。** 这和 opencode 当初的判断是同一个方向，只是 dsh 多留了一样：时间和边界。
 
 ## ④ 用户可见：两边都是"从事件流渲染"
 
-opencode 的 `Text.Delta` 虽然不落盘，但**照样 publish 到事件总线**，UI 订阅它做实时渲染。dsh 的 `assistant/chunk` 落进日志后同步广播 `session/event`，UI 订阅它。
+opencode 的 `Text.Delta` 虽然不落盘，但**照样 publish 到事件总线**，UI 订阅它做实时渲染。dsh 的临时帧走 `agent/assistant-stream`，UI 订阅它；一步结束时，`assistant/message` 进日志、广播 `session/event`，然后一个带 `seq` 的结束帧告诉 UI"刚才那串已经成了第几号事件"。
 
-**所以"用户看到的"这条链两边是同构的：都不是直接读模型流，都是读事件。** 差别在于那条事件之后**还去不去磁盘**。
+**所以"用户看到的"这条链两边是同构的：都不是直接读模型流，都是读事件。**
 
-于是"崩溃后能否重现用户当时看到的画面"这个问题，两边答案不同：
+于是"事后能否重现用户当时看到的画面"这个问题：
 
-| 问题 | opencode | dsh |
+| 问题 | opencode | dsh 0.2 |
 |---|---|---|
-| 能否重放出逐字打字的过程 | **不能**（碎片没了） | 能 |
+| 能否重放出逐字打字的过程 | **不能**（碎片没了） | 能（`stream` 字段） |
 | 能否恢复出完整消息 | 能（`Text.Ended`） | 能（`assistant/message`） |
-| 流到一半崩溃，已显示的半句话在磁盘上 | **不在**（`Ended` 没发出） | 碎片在（但没有 message） |
+| 流到一半崩溃，已显示的半句话在磁盘上 | **不在**（`Ended` 没发出） | **不在**（那一步没写完）；dsh 0.1 时在 |
 
 ## 这是一次真实的取舍，不是谁做错了
 
 **opencode 的账**：省掉 token 级 I/O 与存储；事件表干净（一次回答一条 `Text.Ended`，不是几百条 delta）；代价是崩溃现场无法逐字重建，快照测试只能到消息粒度。
 
-**dsh 的账**：token 级重放、审计、能做流级快照测试（它的 keyless 快照要重放真实的流）；代价是事件量级大一到两个数量级，需要 write-behind 攒批和语义检查点这套额外机制来把成本压回去——[附录：内存日志什么时候真的落盘](durability-checkpoints.md) 讲的就是这套机制。
+**dsh 的账**：token 级重放、审计、能做流级快照测试（它的 keyless 快照要重放真实的流）；代价是每条收尾记录更大（带着整条流），外加结束帧对账和 `assistant/attempt` 这些额外概念。0.1 时的代价更重——事件量级大一到两个数量级，全靠攒批写来压成本；0.2 把这一项砍掉了。攒批和检查点这套机制本身还在，见[附录：内存日志什么时候真的落盘](durability-checkpoints.md)。
 
 **判断依据是"崩溃现场值多少钱"**：
 
@@ -120,7 +144,7 @@ dsh 选了后者——它的 226 个包里有 796 个测试文件、271k 行测�
 
 **③ 落盘粒度：看产品，但 dsh 的选择更有杠杆。** 理由不是"记得更全"，而是它让一整类实践成为可能：**流级快照测试**。dsh 的 keyless 快照要重放真实的流，物理前提就是 token 级记录。opencode 只能做到消息级回归。
 
-反过来说，绝大多数产品不需要 token 级重放，而 dsh 为此付的复杂度（write-behind + 检查点策略 + 两层事件 + provenance 校验）是实打实的。**团队小、迭代快的产品，这套机制的维护成本可能超过收益。**
+反过来说，绝大多数产品不需要 token 级重放，而 dsh 为此付的复杂度（紧凑流编码 + 结束帧对账 + 检查点策略 + provenance 校验）是实打实的。dsh 自己从 0.1 到 0.2 砍掉"每块一条事件"，也说明第一版付的价确实偏高。**团队小、迭代快的产品，这套机制的维护成本可能超过收益。**
 
 **④ 用户可见：平手。** 两边同构。
 
@@ -138,7 +162,7 @@ export const sse: Framing<string> = { id: "sse", frame: ProviderShared.sseFramin
 
 而且**真有第二个实现**：`protocols/bedrock-event-stream.ts` 里的 `framing()` 返回 `Framing<object>`，处理 AWS 的长度前缀二进制帧。
 
-dsh 的 `sse.ts` 是 `llm-deepseek` 包**私有**的。今天没有重复代码（另一个适配器 `llm-pi-ai` 走 SDK，不碰 SSE），但结构上，第三个直连供应商如果用别的分帧方式，dsh 只能在那个适配器内部再写一份。
+dsh 的 `sse.ts` 是 `llm-deepseek` 包**私有**的。今天没有重复代码（另一个适配器 `llm-pi-ai` 走 pi-ai 库，不碰 SSE），但结构上，第三个直连供应商如果用别的分帧方式，dsh 只能在那个适配器内部再写一份。
 
 **这一刀正好砍在 dsh 最引以为傲的地方**：它在 fs / shell / subprocess 这些能力上把 seam 拆得很干净，却在 provider 内部留了一块没有拆的 transport 层。opencode 反过来——产品面的 seam 更粗，provider 面的组合更细。
 
@@ -146,7 +170,7 @@ dsh 的 `sse.ts` 是 `llm-deepseek` 包**私有**的。今天没有重复代码�
 
 **dsh 在"正确性可论证"这个维度上明显更好；opencode 在"用最少机制交付产品"这个维度上更好。**
 
-我个人倾向 dsh 的路线，理由是一个具体观察：**dsh 的每个关键决定都被一条机器检查钉住**——invariant 断言投影一致、gate 强制 `sourceEventSeqs` 非空且密集、检查点 fail-closed；而 opencode 的对应保证多数活在注释和约定里（"A newer turn supersedes stale incomplete rows" 是注释，不是断言）。
+我个人倾向 dsh 的路线，理由是一个具体观察：**dsh 的每个关键决定都被一条机器检查钉住**——invariant 断言投影一致、类型和校验强制 `sourceEventSeqs` 非空且密集（`assistant/message` 则直接禁止它、改为自带流）、检查点 fail-closed；而 opencode 的对应保证多数活在注释和约定里（"A newer turn supersedes stale incomplete rows" 是注释，不是断言）。
 
 **在一个大量由 AI 编写和修改的代码库里，这个区别会被放大：注释约束不住 AI，机器检查能。**
 

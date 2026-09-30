@@ -190,8 +190,17 @@ text: () => (enabled
 这正是 dsh 的形状，只不过 dsh 里这四行分散在四个插件里：
 
 ```ts
-ctx.systemPrompt.section({ name: 'tool:edit', order: 102, text: 'Use the edit tool for …' })
+// dsh/packages/fs/tool-fs/src/edit.ts
+ctx.systemPrompt.section({
+  name: 'tool:edit',
+  order: ctx.systemPrompt.getSectionOrder('TOOL_EDIT'),
+  text: ({ scope }) => ctx.tools.get('edit', scope) === undefined
+    ? ''
+    : 'Read a file before editing it (the default fs-observation-policy requires it), unless you just created or edited it in this session.',
+})
 ```
+
+（`text` 是个函数：这个 agent 没有 `edit` 工具时，这段话就是空的。）
 
 **装了哪些插件，system prompt 就长什么样。**
 
@@ -257,11 +266,11 @@ DSH_SHOW_PROMPT=1 npm run dev
 
 **提示是引导，护栏是保证。** 提示可以被模型忽略（它就是几句话），护栏不会。**只有提示 = 没有安全性；只有护栏 = 浪费步数还可能让模型放弃。** 两个都要。
 
-这条在 dsh 里贯穿始终：`tool-fs` 的 `edit` 既在 system prompt 里写了 "Read the file first (the default fs-observation-policy requires it)"，又真的有一个 `fs-observation-policy` 插件在执行前拦截。**说一遍，也拦一遍。**
+这条在 dsh 里贯穿始终：`tool-fs` 的 `edit` 既在 system prompt 里写了 "Read a file before editing it (the default fs-observation-policy requires it)"，又真的有一个 `fs-observation-policy` 插件在执行前拦截。**说一遍，也拦一遍。**
 
 ## 对照 dsh
 
-`dsh/packages/core/system-prompt/src/index.ts`（545 行）比我们这 90 行多的东西：
+`dsh/packages/core/system-prompt/src/index.ts`（638 行）比我们这 90 行多的东西：
 
 | | 我们的 | dsh |
 |---|---|---|

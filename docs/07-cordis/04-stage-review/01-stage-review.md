@@ -155,7 +155,7 @@ ctx.config.readOnly = true                       // ✗ 父被改了
 
 ## 与 dsh 的差距
 
-规模：我们 **132 行**（`cordis.ts`）对着 `dsh/vendor/cordis/src/` 的 **2693 行**。
+规模：我们 **132 行**（`cordis.ts`）对着 `dsh/vendor/cordis/src/` 的 **2696 行**。
 
 | | 我们的 | dsh 的 | 哪个阶段补齐 |
 |---|---|---|---|

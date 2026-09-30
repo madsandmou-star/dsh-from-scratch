@@ -132,7 +132,15 @@ data: {"choices":[{"index":0,"delta":{"content":"是能"},"finish_reason":null}]
 
 不能。它可能停在半句话、半个 JSON 参数、半个工具调用上。把它当成完整回复写进历史，下一轮模型会看到一段莫名其妙的残句。
 
-dsh 的处理是明确的（`dsh/packages/llm/llm-deepseek/src/sse.ts`）：**流在 `[DONE]` 之前结束就抛 `LlmError('STREAM_CLOSED')`**，注释里写着"截断——这次模型调用不可信"。
+dsh 的处理是明确的，只是它等的终止标记换了一个名字。dsh 0.2 不走我们用的 `/chat/completions`，而是走 DeepSeek 的 Anthropic 兼容接口（默认 `baseURL` 是 `https://api.deepseek.com/anthropic`）。那边的流同样是 SSE，但每帧带一个 `event:` 名字，依次是 `message_start`、`content_block_start` / `content_block_delta` / `content_block_stop`、`message_delta`，最后是 **`message_stop`**——它扮演的就是 `[DONE]` 的角色。
+
+`dsh/packages/llm/llm-deepseek/src/translate.ts` 的最后一行：
+
+```ts
+throw new LlmError('DeepSeek Messages stream ended before message_stop', 'STREAM_CLOSED')
+```
+
+**流在终止标记之前结束，就抛 `STREAM_CLOSED`**——标记的名字变了，判断没变。
 
 > 这是"半成品状态"这个主题的第二次出现。1.4 是"失败留下悬空消息"，这里是"断流留下半句话"。第三次会在阶段 3（工具执行到一半），第四次在阶段 12 给出统一答案。
 
@@ -150,13 +158,21 @@ curl -N ...     # -N / --no-buffer：禁用 curl 自己的输出缓冲
 
 ## 对照 dsh：分帧这件事它不自己写
 
-我们下一课会手写一个分帧器（缓冲 + 按 `\n\n` 切）。dsh 不写——它用 `eventsource-parser` 这个库，`sse.ts` 的模块注释把边界划得很清楚：
+我们下一课会手写一个分帧器（缓冲 + 按 `\n\n` 切）。dsh 不写——它用 `eventsource-parser` 这个库。`dsh/packages/llm/llm-deepseek/src/sse.ts` 一共 28 行，模块注释只有一句：
 
-> 分帧——chunk 重组、UTF-8/CRLF/BOM 处理、注释与非 data 字段跳过、多个 `data:` 的拼接——是 `eventsource-parser` 的职责。这个模块只保留 DeepSeek 的协议部分：字面量 `[DONE]` 会被原样 yield 出去让调用方决定何时收尾，而在它之前遇到 EOF 则抛 `LlmError`。
+> SSE framing delegated to eventsource-parser; JSON errors remain provider failures.
+>
+> （SSE 分帧交给 eventsource-parser；JSON 解析失败仍然算供应商的错。）
 
 这是那条"**优先选用持续维护的依赖，而非手写实现**"规矩的一次具体应用：SSE 分帧看起来简单，实际有一堆边界情况（CRLF、BOM、多行 data、注释行、UTF-8 被切开）。手写一遍你会懂，但产品代码里让库来做。
 
-注释最后一句还点了一个细节：**分帧严格遵守规范——事件只在遇到空行终止符时才派发**，所以 EOF 时那截没终止的尾巴是"截断"，不是"可以冲刷出来的数据"。
+`parseSse()` 的 JSDoc 还点了一个细节：
+
+> Decode complete SSE frames without treating an unterminated tail as an event.
+>
+> （只解码完整的 SSE 帧，不把没有终止符的尾巴当成一个事件。）
+
+**事件只在遇到空行终止符时才成立**，所以 EOF 时那截没终止的尾巴是"截断"，不是"可以冲刷出来的数据"。
 
 ---
 

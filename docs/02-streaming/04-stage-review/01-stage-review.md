@@ -74,7 +74,7 @@ abstract stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 | { type: 'block-start';       index: number; blockType: ContentBlockType }
 | { type: 'text-delta';        index: number; text: string }
 | { type: 'reasoning-delta';   index: number; text: string }
-| { type: 'tool-call-delta';   index: number; id: CallId; name?: string; argumentsDelta: string }
+| { type: 'tool-call-delta';   index: number; id: ToolCallId; name?: string; argumentsDelta: string }
 | { type: 'block-end';         index: number; block: ContentBlock }
 | { type: 'usage';             usage: TokenUsage }
 | { type: 'finish';            reason: FinishReason; replayState?: ReplayEnvelope }
@@ -84,20 +84,37 @@ abstract stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 
 `block-start` / `block-end` 则把"这一块开始了/结束了"变成显式事件，下游不用靠猜。阶段 3 你手写工具调用累积时会体会到没有这两个事件有多难受——你得自己判断"参数收全了没有"。
 
-`translate.ts`（185 行）干的就是这件事：**把 DeepSeek 的 wire chunk 翻译成这套内部协议**，一个有状态的块装配器。它的模块注释里有一句很精确的话：**"finish reason 和最新的 usage 被推迟到 `[DONE]` 才产出，以便同时覆盖 finish 附带 usage 和尾部单独 usage 两种形态，并确保 `finish` 之后不再有任何 chunk。"**
+`translate.ts`（166 行）干的就是这件事：**把 DeepSeek Messages 接口的线上事件翻译成这套内部协议**，一个有状态的块装配器。`usage` 和 `finish` 都攒到 `message_stop` 才产出，`StreamChunk` 类型的 JSDoc 把规则写成了一句话：
 
-"确保 finish 之后不再有 chunk"——这是一条**协议不变量**。有了它，下游可以放心地把 `finish` 当作终点。
+> Adapters emit usage before the terminal finish and nothing afterward.
+>
+> （适配器在终止的 `finish` 之前产出 `usage`，`finish` 之后什么都不产出。）
 
-## 原始增量要落盘
+"`finish` 之后什么都没有"——这是一条**协议不变量**。有了它，下游可以放心地把 `finish` 当作终点。
 
-dsh 的 session 日志里有这么一个事件类型：
+## 原始增量要留档
+
+dsh 的 session 日志要能回答"模型当时是一块一块怎么吐出来的"。`assistant/message` 事件（`dsh/packages/core/session/src/types.ts`）里除了组装好的 `message`，还带着这一步的整条流：
 
 ```ts
-/** Raw stream chunk — token-level replay fidelity. */
-'assistant/chunk': { turn: number; step: number; chunk: StreamChunk }
+'assistant/message': {
+  turn: number
+  step: number
+  message: AssistantMessage
+  /** Exact timed model stream, compacted without joining delta boundaries. */
+  stream: AssistantStreamRecord[]
+  usage?: TokenUsage
+  interrupted?: true
+}
 ```
 
-**每一个原始增量都会被写进持久化日志。** 不是"组装好的完整回复"，是 token 级别的原始碎片。
+注释那句要逐词读：**exact timed**（精确到每一块的到达时刻）、**compacted**（压紧了存）、**without joining delta boundaries**（但不把相邻的增量拼成一个字符串）。压紧的方式在 `dsh/packages/llm/llm/src/assistant-stream.ts`：同一个块连续到达的文本增量合成一条记录，
+
+```ts
+{ type: 'text-chunks', time0: number, index: number, dt: number[], texts: string[] }
+```
+
+`texts` 里一项就是一个原始增量，`time0` 是第一块的时刻，`dt` 是后面每一块距上一块的毫秒数。`expandAssistantStream()` 能把它原样还原成逐块、带时间戳的 `StreamChunk` 序列——**一个字节、一个边界、一毫秒都不丢**。
 
 为什么值得存这么细：
 
@@ -107,6 +124,9 @@ dsh 的 session 日志里有这么一个事件类型：
 
 这就是 dsh 那条"**模型可见 ⟺ 已记录**"规矩的一个侧面：**不仅记录模型看到了什么，也记录模型产出的过程**。
 
+> **这里有一段值得知道的历史。** dsh 0.1 用的是另一种存法：每个增量一条 `assistant/chunk` 事件，一次回答几百条。会话格式 v2（`dsh-v0.1.3-alpha.1`）把它删掉，改成现在这样整步一条（`dsh/docs/persistence-changes/releases/dsh-v0.1.3-alpha.1.md`）。**要求没变——token 级、带时间、可还原；变的是表示**：几百条事件变成一条事件里的几个数组。一次没有产出消息就失败的尝试（重试前的那次、出错的那次）也不丢，它记成 `assistant/attempt`，同样带 `stream`。
+>
+> 2.4a 会讲这个改动对"屏幕和日志怎么保持一致"意味着什么。
 
 ## 一处我们和 dsh 不同的选择
 
@@ -122,8 +142,8 @@ dsh 的做法更细。看 `assistant/message` 事件的 JSDoc：
 
 | | 谁触发的 | 已交付的内容算什么 | 处理 |
 |---|---|---|---|
-| **用户取消**（Ctrl-C、点停止） | 用户 | **已经发生的事实**——用户看到了，而且是他自己喊停的 | 保留 + `interrupted: true` |
-| **传输截断**（缺 `[DONE]`、连接断） | 意外 | **不可信的残片**——可能停在半个 JSON 上 | 丢弃 |
+| **用户取消**（Ctrl-C、点停止） | 用户 | **已经发生的事实**——用户看到了，而且是用户自己喊停的 | 保留 + `interrupted: true` |
+| **传输截断**（缺终止标记、连接断） | 意外 | **不可信的残片**——可能停在半个 JSON 上 | 丢弃 |
 
 **"半成品状态"不是一刀切地丢。** 判断标准是：这段内容是"确实发生过的事实"，还是"可能残缺的数据"。用户主动取消属于前者，传输故障属于后者。
 
@@ -154,8 +174,8 @@ dsh 的做法更细。看 `assistant/message` 事件的 JSDoc：
 | **2.1** | SSE 线格式与空行分帧；`delta` 不是 `message`；缺 `[DONE]` 意味着截断；缓冲会伪造延迟 |
 | **2.2** | 网络分块 ≠ 协议分帧；`TextDecoder({stream:true})`；分帧 = 缓冲+找终止符+留残片；残片必须丢 |
 | **2.3** | 异步生成器 vs 回调的三条取舍；调用方自攒完整文本；两种断流的区别；诊断走 stderr |
-| **2.4** | dsh 为什么只有流式接口；`StreamChunk` 七种类型与 `index` 的作用；原始增量为什么落盘；取消与截断的区别 |
-| **2.4a** | 增量先入内存日志再广播；落盘是另一个订阅者；出错时日志与屏幕各自什么样；`sourceEventSeqs` 的作用 |
+| **2.4** | dsh 为什么只有流式接口；`StreamChunk` 七种类型与 `index` 的作用；原始增量为什么要留档、怎么压紧；取消与截断的区别 |
+| **2.4a** | 增量是临时广播、整步结束才入日志；落盘是另一个订阅者；出错时日志与屏幕各自什么样 |
 | **2.4b** | "流结束"对应哪个物理事件；缺 `[DONE]` 怎么被发现；对端不发也不关时靠空闲看门狗；超时与取消要分开报 |
 
 ## 下一阶段的痛点预告

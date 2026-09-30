@@ -78,7 +78,7 @@ node --inspect-brk --import tsx src/hello.ts
 
 ## 五、对照 dsh：把断言写进产品里
 
-打开任意一个 `dsh/packages/<组>/<包>/src/invariant.ts`（例如 `dsh/packages/core/agent-loop/src/invariant.ts`），你会看到 dsh 在运行时主动检查自己的不变量——比如"模型看到的历史必须能从 session 日志重放出来"。
+打开 `dsh/packages/core/agent-loop/src/invariant.ts`，模块注释是 "Package-owned request-reconstruction invariant for loop-built LLM calls"——dsh 在运行时主动检查"循环发给模型的请求，必须能从 session 日志重建出来"。这样的 `src/invariant.ts` 在 dsh 里有 38 个（`dsh/packages/<组>/<包>/src/invariant.ts`），只写在"几份独立的观测可能对不上"的包里。
 
 这是 debug 思路的工业化：与其等 bug 在三层之外表现成一个莫名其妙的症状，不如**在关系被破坏的那一刻就炸**。你在这门课里手动做的"打点验证假设"，dsh 把它做成了常驻的检查。阶段 19 会专门讲这类检查为什么值得写、以及它和单元测试的分工。
 

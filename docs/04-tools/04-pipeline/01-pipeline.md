@@ -214,7 +214,7 @@ bash 现在有两个超时，这不是重复：
 
 前者模型可以调（"这次 npm install 慢，给我 5 分钟"）；后者是装配的底线，模型碰不到。**一个是业务预算，一个是系统底线。**
 
-dsh 也是这两层：shell 的 `timeoutMs` 在提供者（`bash-local`）里，`dsh-tool-call-timeout-policy` 是挂在 `tools/execute` 上的一个环绕包装器。**两层分别属于两个包**，因为它们回答的是两个问题。
+dsh 也是这两层：shell 的 `timeoutMs` 在提供者（`bash-local`）里，`dsh-tool-call-timeout-policy`（`dsh/packages/guard/timeout-policy/`）是挂在 `tools/execute` 上的一个环绕包装器。**两层分别属于两个包**，因为它们回答的是两个问题。
 
 bash 现在同时接两个信号：
 
@@ -377,7 +377,7 @@ const guards = [trace('最外'), accounting(true), trace('中间'), readOnlyGuar
 |---|---|---|
 | 三段 | 数组里按顺序调函数 | 三个 **waterfall 事件**：`tools/pre-execute` / `tools/execute` / `tools/post-execute` |
 | 谁来挂 | `index.ts` 里写死的数组 | 任何插件 `ctx.on('tools/pre-execute', ...)`，**可动态装卸** |
-| 执行前决定 | 放行 / 拒绝 | allow / deny / **ask**（无审批能力时 ask ⇒ deny） |
+| 执行前决定 | 放行 / 拒绝 | allow / deny / cancel / **ask**（无审批能力时 ask ⇒ deny） |
 | 环绕 | 管线自己的 `setTimeout`（唯一取消源） | `tools/execute` 包装器，**只能改 `exec.signal`**，注册表把调用方信号熔回去（见上面那节插曲） |
 | 执行后 | 只能改文本 | accept / **replace** / enrich / block；**抛错的工具也会走到这一档** |
 | 顺序保证 | 靠数组 | `invariant.ts` 在运行时**断言**：pre 必须先于 execute，execute 必须先于 post，pre 对同一次执行不许重复 |
@@ -394,7 +394,7 @@ if (stages.has(exec)) fail('tools/pre-execute repeated for one execution')
 if (stages.get(exec) !== 'pre') fail('tools/execute must follow tools/pre-execute')
 ```
 
-它不检查"有没有这个服务"或者"插件注册了没有"，而是检查**真实发生的事件流之间的关系**。这正是 AGENTS.md 那条「运行时不变量断言的是**自己拥有的关系**，检查权威事件流或可变数据，而不是服务或方法存不存在」。翻译成人话：**别测试"我导出了这个函数"，要测试"这两件事的先后顺序确实成立"。**
+它不检查"有没有这个服务"或者"插件注册了没有"，而是检查**真实发生的事件流之间的关系**。这正是 dsh AGENTS.md 那条「**Runtime invariants assert owned relationships.**」（运行时不变量断言的是**自己拥有的关系**）：只有当几份独立的观测**可能对不上**时才值得写不变量，而"检查服务在不在、插件元数据、固定的样例"一律算无效。翻译成人话：**别测试"我导出了这个函数"，要测试"这两件事的先后顺序确实成立"。**
 
 **③ 抛错的工具也走 post-execute。** 我们的管线也做到了这一点——被拒绝、超时、工具自己抛错，全都变成文本之后**继续走执行后钩子**。这不是顺手，是必需的：失败也是结果，截断和记账对它一样适用，而且失败的结果往往**更**需要被记账（你想知道哪个工具老是失败）。
 

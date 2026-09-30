@@ -322,7 +322,7 @@ console.error(`[遍历] ${displayPath}`)   // 临时加在 walkFiles 的循环�
 
 ## 对照 dsh
 
-`dsh/packages/fs/tool-fs-search/` 一共 1578 行，其中**没有一行是搜索算法**——全是"怎么正确地调用 ripgrep，以及怎么把它的输出变成模型能用的东西"。
+`dsh/packages/fs/tool-fs-search/` 一共 1551 行，其中**没有一行是搜索算法**——全是"怎么正确地调用 ripgrep，以及怎么把它的输出变成模型能用的东西"。
 
 | | 我们的 | dsh |
 |---|---|---|

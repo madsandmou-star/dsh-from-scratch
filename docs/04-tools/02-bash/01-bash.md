@@ -334,7 +334,7 @@ bash 想读工作目录之外的东西：
 | | 我们的 | dsh |
 |---|---|---|
 | 结构 | 一个函数 | **能力接缝**：`shell`（定义）+ `bash-local`/`bash-sandbox`/`pwsh-local`（提供者）+ `tool-bash`（消费者） |
-| 超时 | 常量 `DEFAULT_TIMEOUT_MS` | `bash-local` 的 **Config 字段**：`timeoutMs: z.number().default(120_000)`，还有 `maxTimeoutMs` **把模型请求的超时钳住** |
+| 超时 | 常量 `DEFAULT_TIMEOUT_MS` | `bash-local` 的 **Config 字段**：`timeoutMs: z.number().default(120_000).volatile()`，还有 `maxTimeoutMs`（默认 600 000）**把模型请求的超时钳住** |
 | 输出过大 | 丢掉，只留末尾 | 同样只留末尾，但**全量转存到文件**，并把路径告诉模型：`[output truncated; full output: /path/...]` |
 | 长命令 | 只能等超时 | `run_in_background: true` 立刻返回一个 job id，用 `job_output` 读、`job_kill` 停 |
 | 状态保留 | 不保留 | 不保留；想要保留的另有 `tool-bash-persistent` 一整个包 |
@@ -345,7 +345,20 @@ bash 想读工作目录之外的东西：
 
 **超时是 Config，不是常量。** 我们写的是 `const 默认超时毫秒 = 30_000`；dsh 写的是一个能从 `cordis.yml` 改的配置字段。AGENTS.md 里那条规矩说得很硬：「**插件里不许有硬编码的可调参数**：随部署变化的选择必须是可校验的 `Config` 字段——一个 `DEFAULT_*` 常量不算可配置。」超时该是 30 秒还是 5 分钟，取决于这个 agent 装在谁的机器上跑什么活，**这不是写代码的人能决定的事**。
 
-**模型给的超时会被钳住。** `clampTimeout(request.timeoutMs, config.timeoutMs, config.maxTimeoutMs)`——模型可以要求更长的超时，但要不到超过部署允许的上限。**模型的请求是输入，不是命令**，这和"路径要检查"是同一条规矩的另一个面。
+那个 `.volatile()` 是 0.2 新加的：字段变成一个引用，用的时候 `.get()` 取当前值。Cordis 对它的注释是 "A stable reference; keep the reference, or capture its value for one operation only."（引用本身是稳定的；要么一直拿着引用，要么只在一次操作里取一次值）——配置在运行中被改，下一次调用就读到新值，不用重启插件。
+
+**模型给的超时会被钳住。** `bash-local` 的 `resolve()` 里：
+
+```ts
+const timeoutMs = clampTimeout(
+  request.timeoutMs,
+  this.config.timeoutMs.get(),
+  this.config.maxTimeoutMs.get(),
+  'bash-local: request.timeoutMs',
+)
+```
+
+模型可以要求更长的超时，但要不到超过部署允许的上限。**模型的请求是输入，不是命令**，这和"路径要检查"是同一条规矩的另一个面。
 
 顺带一提，`description` 这个我们"要了但不用"的参数，在 dsh 里也是**必填**的，而且它有真正的用处：`presentCall()` 用它当终端卡片的副标题给人看。阶段 15 的审批弹窗也要靠它——用户看到的不该是一串 `find . -name '*.ts' -exec rm {} \;`，而该是模型自己写的那句"删掉所有 TypeScript 文件"。
 

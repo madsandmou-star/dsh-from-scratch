@@ -218,7 +218,7 @@ console.error(JSON.stringify(toWireTools(tools), null, 2))   // 请求里到底�
 | 参数校验 | 每个工具手写 if | Schema 声明 + 运行时校验 |
 | 执行 | `await tool.execute(args)` | `tools/pre-execute` → `tools/execute` → `tools/post-execute` **三段事件管线** |
 | 权限 | 无 | `pre-execute` 上挂审批（阶段 15） |
-| 超时 | 无 | `guard` 包的执行超时（`tools/execute` 上的 deadline） |
+| 超时 | 无 | `guard/timeout-policy`（`tools/execute` 上的 deadline） |
 | 输出过大 | 截断到 50KB | spill 策略（`packages/spill/`，超限的内容转存并留引用） |
 | 结果落盘 | 无 | `tool/call` + `tool/result` 两个 session 事件 |
 

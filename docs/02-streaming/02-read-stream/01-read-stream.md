@@ -156,7 +156,7 @@ while ((boundary = buffer.indexOf('\n\n')) !== -1) {
 
 所以 `src/sse.ts` 在流结束后什么都不做，只留一条注释说明为什么。
 
-> dsh 的注释把这条讲得更狠（`dsh/packages/llm/llm-deepseek/src/sse.ts`）：**"分帧严格遵守规范：事件只在其空行终止符处派发，所以 EOF 时未终止的尾巴是截断，不是可冲刷的负载。"**
+> dsh 把这条写进了 `parseSse()` 的 JSDoc（`dsh/packages/llm/llm-deepseek/src/sse.ts`）：**"只解码完整的 SSE 帧，不把没有终止符的尾巴当成一个事件。"**
 >
 > 这句话是"半成品状态"主题的第三次出现（1.4 悬空消息、2.1 缺 `[DONE]`、这里的截断尾巴）。三次的答案都一样：**宁可丢掉，不可当成完整数据用。**
 
@@ -178,27 +178,41 @@ for await (const chunk of response.body!) {
 
 ## 对照 dsh：它把分帧交给库，但保留了协议判断
 
-dsh 不手写这个循环，用的是 `eventsource-parser`：
+dsh 不手写这个循环，用的是 `eventsource-parser`（`dsh/packages/llm/llm-deepseek/src/sse.ts`）：
 
 ```ts
-const events = stream
-  .pipeThrough(new TextDecoderStream())
-  .pipeThrough(new EventSourceParserStream({ onComment }))
+const events = body.pipeThrough(new TextDecoderStream()).pipeThrough(new EventSourceParserStream({ onComment: activity }))
 ```
 
 注意它用的是 **Web Streams 的 `pipeThrough`** 而不是 `for await` + 手动缓冲——两段变换（解码、分帧）被串成一条管道，每段各管一件事。
 
-而 dsh 自己保留的是**协议语义**那一小块：
+而 dsh 自己保留的是**协议语义**那一小块。先是同一个文件里，每一帧的检查：
 
 ```ts
-for await (const { data } of events) {
-  yield data
-  if (data === DONE) return
+for await (const frame of events) {
+  activity()
+  let raw: unknown
+  try { raw = JSON.parse(frame.data) } catch (_invalidSseJson) {
+    throw new LlmError('DeepSeek Messages SSE contains invalid JSON', 'MALFORMED_RESPONSE')
+  }
+  const event = object(raw)
+  if (typeof event.type !== 'string' || (frame.event !== undefined && frame.event !== event.type)) {
+    throw new LlmError('DeepSeek Messages SSE event type mismatch', 'MALFORMED_RESPONSE')
+  }
+  if (event.type === 'error') throw providerError(event, undefined)
+  yield event
 }
-throw new LlmError('SSE stream ended without [DONE]', 'STREAM_CLOSED')
 ```
 
-三行代码，三个决定：`[DONE]` 原样产出（让调用方决定收尾时机）、见到它就返回、没见到就抛错。
+dsh 0.2 走的是 Messages 接口（2.1 讲过），每帧有 `event:` 名字，JSON 里也有 `type`。这里多做了一件我们没做的事：**两处名字不一致就拒绝**——线上的东西自相矛盾，说明中间有东西坏了。
+
+然后是"流有没有正常结束"，放在翻译层 `translate.ts` 的最后：
+
+```ts
+throw new LlmError('DeepSeek Messages stream ended before message_stop', 'STREAM_CLOSED')
+```
+
+`message_stop` 那一支在循环里 `return`；循环走完还没见到它，就落到这一行。三个决定都在：见到终止标记才算完、没见到就抛错、错误码是 `STREAM_CLOSED`。
 
 **这就是"用依赖"和"被依赖绑架"的区别**：把通用的、边界情况多的部分（CRLF、BOM、多行 data、注释行、UTF-8 切割）交出去，把**自己这个协议独有的判断**留在手里。
 

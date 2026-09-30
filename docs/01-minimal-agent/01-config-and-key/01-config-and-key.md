@@ -164,7 +164,7 @@ dsh 把这条写成了硬规矩：**误配置在能自洽判断时于加载期�
 | | 我们的 | dsh 的 | 为什么 dsh 更复杂 |
 |---|---|---|---|
 | 密钥来源 | `process.env[name]` | `dsh/packages/credentials/` 的凭据引用 seam（env 优先，其次 `.env`） | 来源可替换：环境变量、文件、将来的密钥服务 |
-| 取密钥的时机 | 启动时取一次 | 每次请求现取（`DeepSeekConnectionOptions.apiKeyEnv`，见 `dsh/packages/llm/llm-deepseek/src/adapter.ts`） | 配置变更能立刻生效，且不会把这一代的 URL 配上一代的密钥 |
+| 取密钥的时机 | 启动时取一次 | 每次请求现取（`apiKeyEnv` 是一个凭据引用，见 `dsh/packages/llm/llm-deepseek-api-key/src/config.ts`；README 的原话是 "credential reference, resolved per request"） | 配置变更能立刻生效，且不会把这一代的 URL 配上一代的密钥 |
 | 配置校验 | 手写 if | Schemastery schema（阶段 11） | 校验规则本身可被组合、可被生成文档 |
 | 配置来源 | 一个 JSON 文件 | profile / bundle / patch 分层叠加 | 一份部署可以在不改代码的前提下被覆盖 |
 

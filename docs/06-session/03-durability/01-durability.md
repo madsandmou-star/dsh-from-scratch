@@ -291,14 +291,16 @@ dsh 更彻底：它先记下文件原来的大小，失败时 **truncate 回去�
 
 | | 我们的 | dsh 的 | 为什么 dsh 更复杂 |
 |---|---|---|---|
-| 批处理延迟 | `WRITE_BATCH_MAX_DELAY_MS = 200` 常量 | `writeBatchMaxDelayMs` 可配置，默认 200 | 批多久是**部署决定**，不是代码常量 |
-| 批处理归属 | 一个 `SessionWriter` | `SessionWriteBehind` + 共享 coordinator | 多个会话共用一套调度和背压 |
-| 写失败 | 整批放回队首 | truncate 回原大小再 fsync 再重试 | 半截字节会造出重复序号 |
-| 后台写失败 | 打一行日志 | `reportBackgroundFailure` 回调 | 上层要能决定怎么处理（告警？降级？） |
+| 批处理延迟 | `WRITE_BATCH_MAX_DELAY_MS = 200` 常量 | `LIVE_WRITE_BATCH_MAX_DELAY_MS = 200`，**也是常量** | 见下面那段 |
+| 批处理归属 | 一个 `SessionWriter` | 每个打开的写句柄（`JsonlSessionHandle`）自己一个缓冲区和一个 `batchTimer` | 一个会话只有一个写者，缓冲跟着句柄走，关句柄时顺手排干 |
+| 写失败 | 整批放回队首 | 同样整批放回（`this.buffered = batch.concat(this.buffered)`），另外把文件 truncate 回原大小再重试 | 半截字节会造出重复序号 |
+| 后台写失败 | 打一行日志 | 也是打一行 warn，但**暂停自动写**（`drainPaused`），等下一次显式 flush 重试并把错误抛给调用方 | 定时器触发的失败没人 await，只能记下来；显式 flush 有人等，才抛得出去 |
 | 检查点位置 | 两处，写在 `index.ts` 里 | 三处，一个独立插件 | 检查点策略是可替换的——不需要就不装 |
 | 嵌套工具 | 没有嵌套 | `exec.parent !== undefined` 时跳过 | subagent 的工具调用不重复付 fsync |
 
-最后一行的那个"独立插件"值得记住：dsh 把检查点做成了 `session-checkpoint-policy` 这个包，靠三个监听器挂在 `llm/stream`、`tools/execute`、`agent/pre-step` 上。**它可以整个不装**——比如一个跑在内存里的测试装配，根本不需要 fsync。
+第一行值得停一下。dsh 0.1 时这个延迟是可配置的 `writeBatchMaxDelayMs`，0.2 把它收回成了 JSONL 提供者里的一个常量（`dsh/packages/session/session-persistence-jsonl/src/storage.ts`）。乍看这和 4.2 那条"插件里不许有硬编码的可调参数"相抵触——200ms 既不是协议常量，也不是安全不变量（规矩原文只给这两类豁免："Protocol constants, external specs, and security invariants stay fixed."）。我的解读是：0.2 的持久化接口（`dsh/packages/session/session-persistence/src/handle.ts`）把承诺写得很清楚——`append` 只是 "Persistence is best-effort"，**`flush` 才是 "The durability barrier — the one operation that promises storage"**。正确性全压在 `flush` 上，200ms 只影响"崩溃时最多丢多少没到检查点的东西"和写盘次数，dsh 不再把它当成部署方需要调的旋钮。（这是解读，不是源码事实：dsh 没有写明为什么收回这个配置项。）
+
+倒数第二行的那个"独立插件"值得记住：dsh 把检查点做成了 `session-checkpoint-policy` 这个包，靠三个监听器挂在 `llm/stream`、`tools/execute`、`agent/pre-step` 上。**它可以整个不装**——比如一个跑在内存里的测试装配，根本不需要 fsync。
 
 我们写死在 `index.ts` 里是简化。阶段 7 引入 Cordis 之后，这段会变成一个插件；阶段 10 讲 waterfall 时，你会认出 `ctx.on('tools/execute', (exec, next) => …)` 正是我们 4.4 那个"环绕包装器"的真身。
 
