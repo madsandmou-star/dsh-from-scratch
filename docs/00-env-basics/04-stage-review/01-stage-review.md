@@ -81,7 +81,7 @@ TypeScript 在运行时什么都不做——`interface` 编译后一个字节都
 
 后面每加一层抽象，"这行到底执行没执行、值是什么"就难猜一分；到阶段 10 的 waterfall 事件，光靠读代码几乎不可能推出实际执行顺序。那时候你只有一个办法：停下来看。
 
-dsh 把这个思路工业化了：**38 个包带着常驻的 `src/invariant.ts`**，在关系被破坏的瞬间就炸，而不是等症状在三层之外冒出来。它也学会了克制：0.1 时每个包都有一份（226 个），0.2 的规矩改成 "Publish `./invariant` only for diverging observations"——只在"几份独立的观测可能对不上"的地方写，空壳的检查一律删掉。
+dsh 把"在关系被破坏的那一刻就炸"放在了**入口**：会话日志的 `append()` 先校验，不合规的事件根本进不了日志（0.3 第五节）。它也试过另一种做法——每个包旁边一份事后核对的 `src/invariant.ts`——从 0.1 的 226 个收缩到 0.2.0-rc.2 的 38 个，到 0.2.1-alpha.1 整套删除。**一直开着的检查放在数据进来的地方，比放在旁边事后核对更划算**——这是从这段历史读出的判断，dsh 自己没有写删除的理由。
 
 ## 阶段 0 学了什么
 
@@ -89,7 +89,7 @@ dsh 把这个思路工业化了：**38 个包带着常驻的 `src/invariant.ts`*
 |---|---|
 | 0.1 | Node / 包管理器 / tsx 的分工；原生剥离的边界（`enum` 报 `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`）；dsh 因此被迫回到 tsx，且当时**没有测试覆盖真实启动路径**；monorepo 与 workspace |
 | 0.2 | 类型运行时不存在（对照 Python `__annotations__`）；六个常用语法；联合类型 + `assertNever`；`import type`；ESM 两条规则；`strict` 管不到数组下标 |
-| 0.3 | Node 栈顺序与 Python 相反；忘了 `await` 的时序错乱（dsh 称其为"最有价值的一类 lint 抓到的 bug"）；`console.dir` 深度；四种"空"的区分；断点四面板；runtime invariant |
+| 0.3 | Node 栈顺序与 Python 相反；忘了 `await` 的时序错乱（dsh 称其为"最有价值的一类 lint 抓到的 bug"）；`console.dir` 深度；四种"空"的区分；断点四面板；检查放在入口还是放在旁边事后核对（dsh 0.2.1 删掉了后一种） |
 
 ## 下一阶段的痛点预告
 

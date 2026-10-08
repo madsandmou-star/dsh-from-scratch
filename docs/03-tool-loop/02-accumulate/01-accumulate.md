@@ -196,9 +196,15 @@ for (const delta of choice?.delta.tool_calls ?? []) {
 | 谁做累积 | 每个消费者自己攒 | `translate.ts` 攒好，下游拿到的 `block` 已经是完整对象 |
 | 能否边收边执行 | 不能——要等全部结束 | 协议上可以，但 dsh 的循环也没这么做 |
 
-**第三行要看清楚。** `block-end` 让"某个工具调用已经收全"成为一个可观测的时刻，理论上可以一到就派发。但 dsh 的 `dsh/packages/core/agent-loop/src/agent.ts` 是先把整条流读完、写下 `assistant/message`，再调 `executeToolCalls()`——和我们一样等全部结束。源码里没有写为什么；我的推测（不是源码事实）是 6.3 那条规矩：工具跑之前，"模型要求调用它"这条记录要先落盘，而那条记录就是整步结束时写的 `assistant/message`。**协议给了能力，不等于产品就要用。**
+**第三行要看清楚。** `block-end` 让"某个工具调用已经收全"成为一个可观测的时刻，理论上可以一到就派发。但 dsh 的 `dsh/packages/core/agent-loop/src/agent.ts` 是先把整条流读完、写下 `assistant/message`，再调 `executeToolCalls()`——和我们一样等全部结束。dsh 的设计笔记（`dsh/.agents/notes/implemented/architecture/2026-09-22-tool-call-three-phases.md`）亲口承认了这段等待："`tool/call` arrives only after the entire Assistant stream ends. When one response contains several calls, an earlier call waits for later calls even after its own arguments are complete."（一次回复里有好几个调用时，前面那个的参数早就收全了，也得等后面的。）为什么不一收全就跑，笔记没写；我的推测（不是源码事实）是 6.3 那条规矩：工具跑之前，"模型要求调用它"这条记录要先落盘，而那条记录就是整步结束时写的 `assistant/message`。**协议给了能力，不等于产品就要用。**
 
 所以 `block-end` 在 dsh 里真正换来的是前两行：**下游不再各自攒**，拿到的 `block` 已经是完整对象。
+
+> **dsh 怎么处理这段等待：先把"准备中"显示出来。** 它没有改成提前执行，而是把等待交给界面：带着工具名的 `tool-call-delta` 一到，界面就画出一个"准备中"的工具行。0.2.1 又补了一步，参数边流边读（`dsh/.agents/notes/implemented/architecture/2026-09-24-preparing-tool-arguments.md`）：`write`/`edit` 的 `file_path` 一收全就显示路径，`bash` 先显示它的 `description`。
+>
+> 这带出一个很实在的细节：**模型按什么顺序生成参数**。界面想先显示 `description`，模型就得先写它。dsh 对真实的 DeepSeek V4 接口做了 310 次对照请求，结论是：只调 JSON Schema 里 `properties` 的顺序没用（0/40）；`required` 数组的顺序才算数；Flash 模型还得在描述里明说一句。所以 `bash` 工具的描述里多了 "Provide `description` before `command` in the arguments."，`edit` 的 `file_path` 参数描述里多了 "Provide `file_path` before `old_string` and `new_string` in the arguments."。**工具定义不只是给模型的说明书，它的字段顺序也在影响模型怎么写。**
+>
+> "准备中"不进日志。三阶段那份笔记否掉了"把准备中也存下来"，理由是 "Preparation describes current generation; durable calls and results already suffice to reconstruct the final presentation."（准备中描述的是"正在生成"，最终的调用和结果已经足够重建界面。）这和 2.4a 的临时帧是同一个判断。
 
 代价是 `translate.ts` 那 166 行有状态的块装配器。**把复杂度集中在一个地方（翻译层），换取所有下游都能拿到干净的完整对象**——这和 2.4 讲的"只留流式接口"是同一种判断。
 

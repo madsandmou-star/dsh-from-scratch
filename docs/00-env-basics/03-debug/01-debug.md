@@ -76,11 +76,26 @@ node --inspect-brk --import tsx src/hello.ts
 
 第三类最费时间，因为屏幕上"什么都没发生"。固定动作是**先证明代码被执行了**，再谈逻辑对不对。
 
-## 五、对照 dsh：把断言写进产品里
+## 五、对照 dsh：断言放在哪里
 
-打开 `dsh/packages/core/agent-loop/src/invariant.ts`，模块注释是 "Package-owned request-reconstruction invariant for loop-built LLM calls"——dsh 在运行时主动检查"循环发给模型的请求，必须能从 session 日志重建出来"。这样的 `src/invariant.ts` 在 dsh 里有 38 个（`dsh/packages/<组>/<包>/src/invariant.ts`），只写在"几份独立的观测可能对不上"的包里。
+dsh 产品里一直开着的检查，放在**数据进门的那一刻**。`dsh/packages/core/session/src/index.ts` 的 `append()`，一条事件进日志之前先过两道：
 
-这是 debug 思路的工业化：与其等 bug 在三层之外表现成一个莫名其妙的症状，不如**在关系被破坏的那一刻就炸**。你在这门课里手动做的"打点验证假设"，dsh 把它做成了常驻的检查。阶段 19 会专门讲这类检查为什么值得写、以及它和单元测试的分工。
+```ts
+validateSessionEventData(event, `session event "${type}" at seq ${event.seq}`)
+this.surfaceManager.validateNext(event as SessionEvent)
+```
+
+任何一道不过就直接抛错，这条事件根本进不了日志。这就是"在关系被破坏的那一刻就炸"：坏数据在写入那一刻被拦住，而不是等三步之后，某个读日志的地方冒出一个莫名其妙的症状。（阶段 2 会看到这两行在 `append()` 里的完整位置。）
+
+dsh 还试过另一种放法，而且刚刚把它整个删了，正好拿来对比：
+
+- 每个包旁边可以有一个 `src/invariant.ts`，从旁边**事后核对**几件事之间的关系，比如"循环发给模型的请求，能不能从会话日志重建出来"。dsh 0.1 时每个包都有一份（226 个），0.2.0-rc.2 收缩到 38 个。
+- 早在 2026 年 8 月，它们就不在正式发布的装配里跑了。那份设计笔记（`dsh/.agents/notes/archived/simplification/2026-08-03-omit-invariants-from-shipped-config.md`）把它们定性为 "optional development diagnostics"（可选的开发诊断），留给测试和显式开启诊断的部署；同时写明 "Session validation, snapshotting, freezing, and cited source-event validation remain always on"——会话的校验、快照、冻结一直开着，不依赖它们。
+- 0.2.1-alpha.1 把整套运行时不变量插件删掉了：提交 `f028f25667`（"refactor: remove runtime invariant plugins"）和升级指南 `dsh/docs/upgrade-guide/v0.2.0-rc.2/remove-runtime-invariants/guide.md`。**dsh 没有写下删除的理由。**
+
+从这个过程能读出一个判断（这是教师判断，不是源码事实）：**一直开着的检查要放在入口**——数据进来那一刻就验，它永远在，开销只付一次；**放在旁边事后核对的检查**要单独装、单独维护，一旦没装就什么都不防。dsh 先把后一种从正式装配里拿掉，再收缩数量，最后整个删除，把保证留在了入口校验和测试里。
+
+你在这门课里手动做的"打点验证假设"，属于第一种：在你怀疑出错的那个位置、那个时刻去看。阶段 19 会专门讲各种检查各自防住哪一类回归。
 
 ---
 

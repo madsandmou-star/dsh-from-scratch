@@ -33,7 +33,7 @@
   - `console.log` 打点的正确姿势（打值、打类型、打时机）
   - 断点调试：`node --inspect-brk --import tsx`，VS Code attach
   - 三类典型故障的定位手法：拿不到值 / 拿到的类型不对 / 根本没执行到
-  - 对照 dsh：为什么 dsh 在运行时检查自己的不变量（`dsh/packages/core/agent-loop/src/invariant.ts`）
+  - 对照 dsh：检查放在入口（`dsh/packages/core/session/src/index.ts` 的 `append()` 先校验再入日志），还是放在旁边事后核对（dsh 0.2.1 删掉了整套 runtime invariant）
 
 - **0.4 [阶段验收](docs/00-env-basics/04-stage-review/01-stage-review.md)**
   - 验收清单 + 工程思维总结：为什么 dsh 选 TypeScript、选 pnpm workspace，而课程选 npm
@@ -309,7 +309,7 @@ src/types.ts       # 改：ToolCall、tool role
 - **6.5 [阶段验收](docs/06-session/05-stage-review/01-stage-review.md)** ✅
   - 四节课是同一个问题的四层：**"发生过什么"怎么才能真的可信**
   - 七条工程判断（拆结构看几个冲突的理由、格式决定失败粒度、默认值选代价小的一边…）
-  - 对照 `dsh/packages/core/session/`、`dsh/packages/session/`：614 行 vs 3421 + 17863 行
+  - 对照 `dsh/packages/core/session/`、`dsh/packages/session/`：614 行 vs 3153 + 17705 行
 
 ## 第二阶段 · 演进成 dsh
 
@@ -492,9 +492,9 @@ src/types.ts       # 改：ToolCall、tool role
 
 > **痛点**：改一处崩三处；重构之后没人敢合。
 >
-> **引入**：单元测试、快照重放、runtime invariant、仓库门禁各自防住哪一类回归。
+> **引入**：单元测试、快照重放、入口校验、仓库门禁各自防住哪一类回归；以及 dsh 为什么在 0.2.1 删掉了整套 runtime invariant。
 >
-> **对照**：[docs/testing.md](dsh/docs/testing.md)、`dsh/packages/core/agent-loop/src/invariant.ts`、`scripts/`。
+> **对照**：[docs/testing.md](dsh/docs/testing.md)、`dsh/docs/upgrade-guide/v0.2.0-rc.2/remove-runtime-invariants/guide.md`、`scripts/`。
 
 ### 阶段 20：自我修改
 

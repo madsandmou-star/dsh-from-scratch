@@ -154,7 +154,7 @@ dsh 选了后者——它的 226 个包里有 796 个测试文件、271k 行测�
 
 **① SSE 语义：dsh 略胜。** `[DONE]` 是 OpenAI 系事实标准的终止符，把它降级成 keep-alive 就放弃了唯一能区分"干净结束"和"干净截断"的显式信号。opencode 大概率靠 finish 事件缺失达到类似效果，但那是隐式的——我在它源码里没找到显式的截断检测。**对"这段数据可不可信"这种判断，显式优于隐式。**
 
-**② 内存态：dsh 明显更好，这条我最有把握。** opencode 同时有事件溯源**和**可变投影缓存（`updateAssistant` 原地改写），等于**两套真相要保持一致**；源码里 "A newer turn supersedes stale incomplete rows; never resume an older assistant projection" 这类注释，就是在手工处理这种不一致。dsh 只有一套真相加纯函数投影，而且能写出 `deriveMessages()` 结果必须等于实际请求的 runtime invariant——**这条断言在可变投影的架构里根本无法表达**。
+**② 内存态：dsh 明显更好，这条我最有把握。** opencode 同时有事件溯源**和**可变投影缓存（`updateAssistant` 原地改写），等于**两套真相要保持一致**；源码里 "A newer turn supersedes stale incomplete rows; never resume an older assistant projection" 这类注释，就是在手工处理这种不一致。dsh 只有一套真相加纯函数投影，所以"每一次请求都能从日志算回来"能被写成**一条可以机械检查的断言**——到 0.2.0-rc.2 为止，dsh 确实有这么一条运行时断言（`agent-loop` 的 `invariant.ts`；0.2.1-alpha.1 随整套运行时不变量一起删掉了，规矩本身仍写在架构文档里）。**在可变投影的架构里，这句话连写成断言都做不到。**
 
 代价要说清楚：纯投影每次都要 fold 日志，dsh 为此额外做了 `session-projection-cache`。它没有免费。
 
@@ -186,7 +186,7 @@ dsh 的 `sse.ts` 是 `llm-deepseek` 包**私有**的。今天没有重复代码�
 
 **dsh 在"正确性可论证"这个维度上明显更好；opencode 在"用最少机制交付产品"这个维度上更好。**
 
-我个人倾向 dsh 的路线，理由是一个具体观察：**dsh 的每个关键决定都被一条机器检查钉住**——invariant 断言投影一致、类型和校验强制 `sourceEventSeqs` 非空且密集（`assistant/message` 则直接禁止它、改为自带流）、检查点 fail-closed；而 opencode 的对应保证多数活在注释和约定里（"A newer turn supersedes stale incomplete rows" 是注释，不是断言）。
+我个人倾向 dsh 的路线，理由是一个具体观察：**dsh 的每个关键决定都被一条机器检查钉住**——日志入口先校验、不合规的事件进不了日志，类型和校验强制 `sourceEventSeqs` 非空且密集（`assistant/message` 则直接禁止它、改为自带流），检查点 fail-closed（rc.8 时还有一层运行时 invariant 核对投影一致，0.2.1 删了）；而 opencode 的对应保证多数活在注释和约定里（"A newer turn supersedes stale incomplete rows" 是注释，不是断言）。
 
 **在一个大量由 AI 编写和修改的代码库里，这个区别会被放大：注释约束不住 AI，机器检查能。**
 

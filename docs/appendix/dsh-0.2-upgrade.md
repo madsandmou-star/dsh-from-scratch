@@ -2,6 +2,8 @@
 
 > 课程的参考版本从 `dsh-v0.1.0-rc.8`（commit `141eb6fef`，2026-08-19）升到了 `0.2.0-rc.2`（commit `639ed0153`，2026-09-29）。这一个多月里 dsh 改掉了好几处课程讲过的机制。这篇附录做两件事：告诉你**哪些课要回头重读**，以及 **dsh 每一处改动的理由**——理由尽量引 dsh 自己的设计笔记（`dsh/.agents/notes/`），笔记里没写的会明确标成"推测"。
 >
+> 之后参考版本又升到了 `0.2.1-alpha.1`（commit `5badb1500`，2026-10-03）。**只想知道最近这一次改了什么、要重读哪几课，直接看文末的第五节。**
+>
 > 读这篇不需要先学过阶段 9 之后的东西。
 
 ## 一、先看结论：哪些课要重读
@@ -28,7 +30,7 @@
 | 4.1、4.3、4.4、4.5 | `replace_all` 的引导从提示词挪到了报错里；glob 超上限时可以按目录轮流取样；`str_replace_editor` 不再默认装配 |
 | 6.1、6.2、6.4、6.5 | 引文、行数、对照表更新：持久化接口、默认 zstd、格式 v4 与升级链 |
 | 7.1、7.3 | **更正一处旧错**：`- name: './hello.ts'` 出自 Cordis 教程，不是 dsh 的 base 装配；7.3 换成了 base 装配的真实开头 |
-| 0.3、0.4 | 不再是"每个包都有 `invariant.ts`"，只剩 38 个 |
+| 0.3、0.4 | 不再是"每个包都有 `invariant.ts`"，只剩 38 个（0.2.1 又整套删除，见第五节） |
 | 1.1、1.2、1.3 | `apiKeyEnv` 所在的包、内部词汇与线上格式的隔离、适配器的定位说法更新 |
 
 ### 不用重读
@@ -47,7 +49,7 @@
 
 > Messages represents thinking, signatures, tool calls, tool results, and cumulative usage as native protocol fields. Translating only the endpoint or flattening assistant history loses information needed by subsequent tool turns.
 
-Messages 协议把**思维链、思维链的签名、工具调用、工具结果、累计用量**都当作协议里的原生字段；换成别的格式或者把历史压扁，会丢掉后续工具轮次需要的信息。另一份笔记（`dsh/.agents/notes/implemented/simplification/2026-09-19-deepseek-messages-only.md`）解释了为什么不两个都留："Selecting a second transport duplicates serializers, stream handling, Files wire formats, configuration branches, and fixtures without adding a required capability to this route."——留第二套协议等于所有东西写两遍，却不带来这条线路需要的任何能力。
+Messages 协议把**思维链、思维链的签名、工具调用、工具结果、累计用量**都当作协议里的原生字段；换成别的格式或者把历史压扁，会丢掉后续工具轮次需要的信息。另一份笔记（`dsh/.agents/notes/archived/simplification/2026-09-19-deepseek-messages-only.md`）解释了为什么不两个都留："Selecting a second transport duplicates serializers, stream handling, Files wire formats, configuration branches, and fixtures without adding a required capability to this route."——留第二套协议等于所有东西写两遍，却不带来这条线路需要的任何能力。
 
 **代价。** 自定义的 `baseURL` 必须兼容 Messages 接口。
 
@@ -84,7 +86,7 @@ Messages 协议把**思维链、思维链的签名、工具调用、工具结果
 
 **改了什么。** 0.1 只有一个 `deployment:persona` 段落。0.2 有 `deployment:persona-prefix`（order 0）和 `deployment:persona-suffix`（order 10200，最后）。
 
-**理由。** `dsh/.agents/notes/implemented/bug-fix/2026-09-06-environment-prompt-suffix.md`：本机 Web 地址、dsh 源码路径、工作目录这些**每台机器都不同**的事实，放在前面会让所有人本来相同的提示词很早就分叉，"limiting the prefix available for same-model cache reuse"。所以 dsh 自带的装配把"你是谁"放前缀，只把 `Your working directory is {{cwd}}.` 放后缀。
+**理由。** `dsh/.agents/notes/archived/bug-fix/2026-09-06-environment-prompt-suffix.md`：本机 Web 地址、dsh 源码路径、工作目录这些**每台机器都不同**的事实，放在前面会让所有人本来相同的提示词很早就分叉，"limiting the prefix available for same-model cache reuse"。所以 dsh 自带的装配把"你是谁"放前缀，只把 `Your working directory is {{cwd}}.` 放后缀。
 
 **带走的判断。** 还是缓存前缀。一段文字该放前面还是后面，不只看"读起来顺不顺"，还要看"它在不同用户之间是不是一样"。
 
@@ -134,9 +136,11 @@ Messages 协议把**思维链、思维链的签名、工具调用、工具结果
 
 **改了什么。** 0.1 要求每个包都发布一个 `invariant.ts`（226 个）；0.2 只留 38 个。
 
-**理由。** `dsh/.agents/notes/implemented/simplification/2026-08-28-omit-unneeded-invariant-companions.md`：当时有 209 个"说明为什么是空的"空壳检查，"That machinery expressed a negative conclusion without adding a runtime assertion"——一大堆机制只是在说"这里没什么可查"。新规矩：只有几份**独立产生的观测可能对不上**时才写不变量。
+**理由。** `dsh/.agents/notes/archived/simplification/2026-08-28-omit-unneeded-invariant-companions.md`：当时有 209 个"说明为什么是空的"空壳检查，"That machinery expressed a negative conclusion without adding a runtime assertion"——一大堆机制只是在说"这里没什么可查"。新规矩：只有几份**独立产生的观测可能对不上**时才写不变量。
 
 **带走的判断。** 检查也有成本。"每个都要有"的规则很容易执行，但会产出大量不检查任何东西的检查。
+
+**后续。** 一个月后，0.2.1-alpha.1 把剩下的 38 个连同注册表一起删了，见第五节。
 
 ### 11. 删掉 agent-spine-demo
 
@@ -163,3 +167,50 @@ Messages 协议把**思维链、思维链的签名、工具调用、工具结果
 ## 四、这一次升级本身教了什么
 
 路径检查只抓到了 4 处失效，真正要改的有几十处：**路径还在，说法已经错了。** 文件没删，里面的机制换了；函数名还在，注释的原文改了；数字没报错，但已经从 226 变成 316。所以课程的规矩里加了一条：升级之后要逐条复核对 dsh 的描述，而且每进入一个新阶段先升到上游最新版。
+
+## 五、再升一次：0.2.0-rc.2 → 0.2.1-alpha.1
+
+> 参考版本从 `0.2.0-rc.2`（commit `639ed0153`，2026-09-29）升到 `0.2.1-alpha.1`（commit `5badb1500`，2026-10-03）。上游这几天有 202 个提交、4190 个文件变动，但大部分落在设计笔记的归档整理（约 1700 个文件）、Web 界面（`packages/client`，约 460 个）和实验包上。**和课程有关的只有两件事**，外加几处数字和三份设计笔记挪进了 `archived/`。
+
+### 要重读的课
+
+| 课 | 变了什么 | 程度 |
+|---|---|---|
+| [0.3 debug](../00-env-basics/03-debug/01-debug.md) | 第五节重写：dsh 删掉了整套运行时不变量；原来说"dsh 把它做成了常驻的检查"**本来就不准确**（见下面第 1 条） | 必须重读第五节 |
+| [4.4 执行前后](../04-tools/04-pipeline/01-pipeline.md) | "对照 dsh"的 ②：三段事件的顺序现在靠结构和测试保证，不再有运行时断言 | 必须重读 ② |
+| [3.2 累积工具调用](../03-tool-loop/02-accumulate/01-accumulate.md) | 新增：dsh 怎么处理"等整条流结束"这段等待（"准备中"），以及参数生成顺序的实测 | 新内容，建议读 |
+| [0.4 阶段验收](../00-env-basics/04-stage-review/01-stage-review.md) | 第 4 点改写 | 快速过 |
+| [opencode 与 dsh 的体量对比](opencode-vs-dsh.md)、[流式的四段链路](streaming-opencode-vs-dsh.md) | 提到 runtime invariant 的几句标注为历史；体量表加了一列 | 快速过 |
+
+其余的课不用动：会话、流式、system prompt、持久化、Cordis 这几块的源码在这次升级里没有变化（Cordis 只改了版本号）。
+
+### 1. 运行时不变量整套删除
+
+**改了什么。** `@deepseek-ai/dsh-invariants` 注册表、每个包的 `./invariant`（还剩 38 个）、相关的门禁和测试装置全部删除；dsh 的 AGENTS.md 里那条 "Runtime invariants assert owned relationships" 也一起删了。提交 `f028f25667`（"refactor: remove runtime invariant plugins"），升级指南 `dsh/docs/upgrade-guide/v0.2.0-rc.2/remove-runtime-invariants/guide.md`。
+
+**理由。** **dsh 没有写下这一次删除的理由**——提交信息只列了删了什么，升级指南只讲怎么迁移。但前面两步是有记录的，连起来能看清走向：
+
+- 2026-08-03，`dsh/.agents/notes/archived/simplification/2026-08-03-omit-invariants-from-shipped-config.md`：先从正式发布的装配里拿掉。它们被定性为 "optional development diagnostics"；当时的问题是终端版装了它们而 Web 版没装，"A relational assertion failure could terminate an ordinary TUI run even though the always-on product boundary remained responsible for session validation and immutable history"——一次关系断言失败就能让用户正常使用的终端版直接退出，而真正一直负责会话校验和历史不可变的，本来就是产品入口那一层。
+- 2026-08-28：从"每个包都要有"收缩到"只在独立观测可能对不上的地方写"（第二节第 10 条）。
+- 2026-09-30：剩下的全部删除。
+
+**代价。** 少了一层"在测试里顺带交叉核对"的保险。原来几个事件派发点（比如 `llm/adapters-updated`）为 `INVARIANT` 错误留了专门的"重新抛出"分支，现在这些分支也删了，监听器的错误一律记日志、不再往外抛。
+
+**带走的判断。**（教师判断，不是源码事实。）一直开着的保证，dsh 放在了两个地方：**数据进门的那一刻**（`Session.append()` 先校验再写入，0.3 第五节）和**测试**（4.4 第 ② 点那条顺序断言）。放在旁边事后核对的检查，一开始是"越多越安全"，后来发现大部分什么都不查，再后来发现它会把开发期的诊断变成用户那边的崩溃，最后整个拿掉。**检查的价值取决于它放在哪里，不取决于有多少条。**
+
+### 2. 工具参数边流边读，以及"参数顺序"这件事
+
+**改了什么。** 界面在工具调用的参数还在流的时候，就按字段读出来显示："准备中"的 `write`/`edit` 行一旦 `file_path` 收全就显示路径，`bash` 先显示 `description`。`bash` 的描述和 `edit` 的 `file_path` 描述里各加了一句"请先写某个参数"。
+
+**理由。** `dsh/.agents/notes/implemented/architecture/2026-09-22-tool-call-three-phases.md`：`tool/call` 要等整条流结束才出现，"File content is part of the arguments to `write`, so this delay can last several seconds"——要写的文件内容本身就在参数里，这段空白可能长达几秒，界面上什么都不显示。`dsh/.agents/notes/implemented/architecture/2026-09-24-preparing-tool-arguments.md` 补上了"边流边按字段读"，并记录了一个实测：对真实的 DeepSeek V4 接口做 310 次对照请求，**只调 JSON Schema 里 `properties` 的顺序没用（0/40），模型跟的是 `required` 的顺序**，Flash 模型还要在描述里明说一句。
+
+**带走的判断。** 3.2 讲过"协议给了能力，不等于产品就要用"：dsh 仍然没有提前执行工具，它选择把等待**显示出来**，而不是**缩短**。另外，工具定义里字段的顺序会影响模型生成参数的顺序——这是 4.x 写工具时容易忽略的一个面。
+
+### 3. 其他
+
+- 三份课程引用的设计笔记从 `implemented/` 挪进了 `archived/`（`deepseek-messages-only`、`environment-prompt-suffix`、`omit-unneeded-invariant-companions`），引用路径已更新。按 dsh 的规矩，归档笔记是冻结的历史记录，不再代表当前的权威说法；我们引用它们，正是为了讲"当时为什么那么改"。
+- 数字：包 316 → 319，包组 55 → 54（删掉了运行时诊断那一组），`core/session` 3421 → 3153 行，`session/` 17863 → 17705 行，`agent-loop` 2490 → 2425 行。`core/` 少掉的 644 行里有 585 行是被删的不变量文件。
+
+### 这一次升级本身教了什么
+
+这次三套机械检查（路径、引文、标识符）一共只报了 5 处，全部指向同一件事：不变量被删。真正多出来的发现来自去读那几份设计笔记：**0.3 原来写的"dsh 把它做成了常驻的检查"在上一个版本就已经不对了**——它们 8 月起就不在正式装配里跑。**"代码存在"和"代码在用户那边运行"是两件事**，对照源码时两者都要核实。

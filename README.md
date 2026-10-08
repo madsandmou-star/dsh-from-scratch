@@ -7,7 +7,7 @@
 
 | | |
 |---|---|
-| 📌 参考版本 | deepseek-harness `0.2.0-rc.2`（commit `639ed0153`，2026-09-29，钉在 `dsh/` submodule，只读） |
+| 📌 参考版本 | deepseek-harness `0.2.1-alpha.1`（commit `5badb1500`，2026-10-03，钉在 `dsh/` submodule，只读） |
 | 📂 参考源码 | `dsh/packages/`、`dsh/docs/`、`dsh/apps/` |
 | 🎯 终点 | **骨架 1:1 复刻**（rc.8 时统计为 31 个包、约 6.2 万行）+ 外围逐个读懂；最后给 dsh 提一个真插件 |
 | 👤 适合人群 | 想搞懂 AI coding agent 内部原理、准备给 dsh 提 PR 的开发者 |
@@ -15,7 +15,7 @@
 
 ## 为什么不是"直接读源码"
 
-dsh 有 300 多个包（分在 55 个包组里）。打开 `dsh/packages/core/agent-loop/src/index.ts`，一行 `static inject = ['agents', 'sessions', 'llm', 'tools', 'systemPrompt', 'sessionProjections']` 就牵出六个服务，而它们谁都不在这个文件里。直接读，第三个文件就迷路了——不是因为代码难，是因为**你缺少这套架构存在的动机**。
+dsh 有 300 多个包（分在 54 个包组里）。打开 `dsh/packages/core/agent-loop/src/index.ts`，一行 `static inject = ['agents', 'sessions', 'llm', 'tools', 'systemPrompt', 'sessionProjections']` 就牵出六个服务，而它们谁都不在这个文件里。直接读，第三个文件就迷路了——不是因为代码难，是因为**你缺少这套架构存在的动机**。
 
 一个抽象只有在你先痛过之后才讲得通：
 
@@ -47,7 +47,7 @@ dsh 有 300 多个包（分在 55 个包组里）。打开 `dsh/packages/core/ag
 | **框架** | `vendor/cordis` | 6,493 行（rc.8；0.2 的 `src/` 是 2,696 行） | 先自己写迷你版跑通，再对照读全量，不逐行抄 |
 | **外围** | `client/` Web GUI（45,536 行）、`host/` + `api/` + `typert`（21,222 行）、website、Python SDK、native/landlock、e2b、lsp、terminal PTY、sandbox 后端、hooks 桥、session-query、spill、attachment、storage、仓库门禁与生成器 | 约 14 万行（rc.8） | 带你读懂设计与取舍，不重写 |
 
-> 规模数字是参考版本还在 rc.8 时统计的。升到 0.2.0-rc.2 之后 dsh 整体从 226 个包长到 316 个（`src/` 从 24 万行到 41 万行），骨架里变化最大的是 `session/`（13 个包 → 20 个，多出来的主要是会话格式和它的升级链），外围里变化最大的是 `client/`。重新划一遍骨架边界留到阶段 21（骨架对齐）去做。
+> 规模数字是参考版本还在 rc.8 时统计的。升到 0.2（当前是 0.2.1-alpha.1）之后 dsh 整体从 226 个包长到 319 个（`src/` 从 24 万行到 41 万行），骨架里变化最大的是 `session/`（13 个包 → 20 个，多出来的主要是会话格式和它的升级链），外围里变化最大的是 `client/`。重新划一遍骨架边界留到阶段 21（骨架对齐）去做。
 
 参照系：骨架的 31 个包，正好和 opencode 整个项目的包数一样多——**这门课的"骨架"体量等于 OpenCode From Scratch 的全部目标**。外围之所以只读，不是因为它不重要，而是因为重写 4.5 万行 Web 前端学不到 agent 架构，读它的分层却能。
 
@@ -83,7 +83,7 @@ dsh 有 300 多个包（分在 55 个包组里）。打开 `dsh/packages/core/ag
 | 16 | 长对话爆上下文 | compaction 与 spill |
 | 17 | 单 agent 干所有事 | subagent、skill、plan、todo |
 | 18 | 只有一个终端出口 | headless / ACP / JSON-RPC / Web，由 `session/event` 驱动 |
-| 19 | 改一处崩三处 | 测试、快照重放、runtime invariant、门禁 |
+| 19 | 改一处崩三处 | 测试、快照重放、入口校验、门禁（以及 dsh 为什么删掉了 runtime invariant） |
 | 20 | 加个能力要重启进程 | agent 挂载自己写的插件 |
 
 完整大纲与当前进度见 **[COURSE.md](COURSE.md)**（活文档，进入每阶段前才细化）。

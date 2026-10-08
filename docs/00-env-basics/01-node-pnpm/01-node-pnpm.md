@@ -73,7 +73,7 @@ node --experimental-strip-types src/hello.ts
 
 ## workspace：一个仓库里的几十个包
 
-dsh 不是一个包，是 300 多个包住在一个仓库里（按 `dsh/packages/<组>/<包>/` 分成 55 个包组），彼此用包名互相引用，比如 `import ... from '@deepseek-ai/dsh-llm'`。这种布局叫 **monorepo**，pnpm 用 `dsh/pnpm-workspace.yaml` 声明哪些目录算成员：
+dsh 不是一个包，是 300 多个包住在一个仓库里（按 `dsh/packages/<组>/<包>/` 分成 54 个包组），彼此用包名互相引用，比如 `import ... from '@deepseek-ai/dsh-llm'`。这种布局叫 **monorepo**，pnpm 用 `dsh/pnpm-workspace.yaml` 声明哪些目录算成员：
 
 ```yaml
 packages:

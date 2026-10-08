@@ -380,21 +380,25 @@ const guards = [trace('最外'), accounting(true), trace('中间'), readOnlyGuar
 | 执行前决定 | 放行 / 拒绝 | allow / deny / cancel / **ask**（无审批能力时 ask ⇒ deny） |
 | 环绕 | 管线自己的 `setTimeout`（唯一取消源） | `tools/execute` 包装器，**只能改 `exec.signal`**，注册表把调用方信号熔回去（见上面那节插曲） |
 | 执行后 | 只能改文本 | accept / **replace** / enrich / block；**抛错的工具也会走到这一档** |
-| 顺序保证 | 靠数组 | `invariant.ts` 在运行时**断言**：pre 必须先于 execute，execute 必须先于 post，pre 对同一次执行不许重复 |
+| 顺序保证 | 靠数组 | 靠**结构**：三段事件只由 `ToolRuntime` 自己的私有方法依次触发，再加测试钉住（0.2.0-rc.2 之前还有一份运行时断言，0.2.1 删了） |
 | 最终观察 | 无 | `tools/result`（emit）：拿到深冻结的最终结果，监听器失败被隔离 |
 
 三处值得展开：
 
 **① 为什么是 waterfall 而不是普通事件。** 阶段 10 会正面讲，这里先看形状：waterfall 的每个监听器都拿到一个 `next()`，**调 `next()` 就是"我没意见，交给下一个"**，不调就是"我说了算，到此为止"。我们那个 for 循环里的 `if (!决定.放行) return` 就是最朴素的短路版本。dsh 的 AGENTS.md 里有一条硬规矩：「**waterfall 监听器必须调 `next()` 来委托；不调就直接返回等于短路整条链**」——写错这一行，后面所有插件就静悄悄地失效了。
 
-**② 运行时断言顺序。** `invariant.ts` 里那几行很有意思：
+**② 顺序由谁保证。** 三段事件在 dsh 里只由注册表自己的私有方法按顺序触发：`prepareExecution()` 发 `tools/pre-execute`，`dispatchScheduledExecution()` 发 `tools/execute`（真正跑工具体的 `dispatchToolBody()` 是这条 waterfall 最里面那一层 `next`），`postExecute()` 发 `tools/post-execute`（都在 `dsh/packages/core/tools/src/index.ts`）。插件只往这几个事件上**挂监听器**，正常路径上没有人自己去发它们——顺序是代码结构决定的，和我们那个按顺序调函数的 for 循环是同一回事。
 
-```
-if (stages.has(exec)) fail('tools/pre-execute repeated for one execution')
-if (stages.get(exec) !== 'pre') fail('tools/execute must follow tools/pre-execute')
+再往上一层是测试。`dsh/packages/core/tools/tests/tools.spec.ts` 里挂两个记录先后的监听器，跑一次工具，然后断言：
+
+```ts
+// pre runs fully (gate) before dispatch, then post runs over the result.
+expect(order).toEqual(['pre:before', 'pre:after', 'post:before', 'post:after'])
 ```
 
-它不检查"有没有这个服务"或者"插件注册了没有"，而是检查**真实发生的事件流之间的关系**。这正是 dsh AGENTS.md 那条「**Runtime invariants assert owned relationships.**」（运行时不变量断言的是**自己拥有的关系**）：只有当几份独立的观测**可能对不上**时才值得写不变量，而"检查服务在不在、插件元数据、固定的样例"一律算无效。翻译成人话：**别测试"我导出了这个函数"，要测试"这两件事的先后顺序确实成立"。**
+注意它测的是**两件事真实发生的先后**，不是"有没有导出这个函数"、"插件注册了没有"。**要测关系，不要测存在**——这个判断值得带走。
+
+> 这里有一段刚变的历史。到 0.2.0-rc.2 为止，dsh 还有一份 `invariant.ts` 在运行时（主要在测试里）断言同一件事：`if (stages.get(exec) !== 'pre') fail('tools/execute must follow tools/pre-execute')`。0.2.1-alpha.1 把所有运行时不变量插件整套删了（提交 `f028f25667`），dsh 没写理由。顺序的保证现在就是上面两层：结构，加测试。
 
 **③ 抛错的工具也走 post-execute。** 我们的管线也做到了这一点——被拒绝、超时、工具自己抛错，全都变成文本之后**继续走执行后钩子**。这不是顺手，是必需的：失败也是结果，截断和记账对它一样适用，而且失败的结果往往**更**需要被记账（你想知道哪个工具老是失败）。
 

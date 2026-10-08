@@ -164,7 +164,7 @@ JSON 数组把失败粒度定在"整个文件"，JSONL 定在"一行"。6.2 那�
 
 ## 与 dsh 的差距
 
-规模上：我们 **614 行**（`session.ts` + `persistence.ts`）对着 dsh 的 `core/session` **3421 行**加 `packages/session/` 下 **20 个包、17863 行**（其中 6 个包是会话格式和它的四级升级链）。
+规模上：我们 **614 行**（`session.ts` + `persistence.ts`）对着 dsh 的 `core/session` **3153 行**加 `packages/session/` 下 **20 个包、17705 行**（其中 6 个包是会话格式和它的四级升级链）。
 
 | | 我们的 | dsh 的 | 哪个阶段补齐 |
 |---|---|---|---|
