@@ -2,9 +2,25 @@
 
 > 课程的参考版本从 `dsh-v0.1.0-rc.8`（commit `141eb6fef`，2026-08-19）升到了 `0.2.0-rc.2`（commit `639ed0153`，2026-09-29）。这一个多月里 dsh 改掉了好几处课程讲过的机制。这篇附录做两件事：告诉你**哪些课要回头重读**，以及 **dsh 每一处改动的理由**——理由尽量引 dsh 自己的设计笔记（`dsh/.agents/notes/`），笔记里没写的会明确标成"推测"。
 >
-> 之后参考版本又升到了 `0.2.1-alpha.1`（commit `5badb1500`，2026-10-03）。**只想知道最近这一次改了什么、要重读哪几课，直接看文末的第五节。**
+> 之后参考版本又升到了 `0.2.1-alpha.1`（commit `5badb1500`，2026-10-03）。**只想知道最近这一次改了什么，看文末的第五节；想把两次升级要重读的课一起过一遍，按下面的"重学路线"走。**
 >
 > 读这篇不需要先学过阶段 9 之后的东西。
+
+## 重学路线：两次升级合并成一条
+
+两次升级（rc.8 → 0.2.0-rc.2，再到 0.2.1-alpha.1）要重读的课，按主题排成一条路线。前一单元是后一单元的铺垫，按顺序走最省力。最后一列指向下面第二节、第五节里"dsh 为什么这么改"的对应条目。
+
+| 单元 | 主题 | 读哪几段 | 为什么改 |
+|---|---|---|---|
+| 1 | 流怎么算结束 | [2.1](../02-streaming/01-what-is-sse/01-what-is-sse.md) "`[DONE]` 缺失意味着什么"；[2.2](../02-streaming/02-read-stream/01-read-stream.md) "对照 dsh"；[2.4b](../02-streaming/04-stage-review/03-stream-end-detection.md) "dsh 的解法：空闲看门狗" | 第二节 1 |
+| 2 | 流怎么留档、屏幕怎么对账 | [2.4](../02-streaming/04-stage-review/01-stage-review.md) "原始增量要留档"；[2.4a](../02-streaming/04-stage-review/02-log-and-screen.md) 全篇；[3.2](../03-tool-loop/02-accumulate/01-accumulate.md) "第三行要看清楚"及后面的"准备中" | 第二节 2、第五节 2 |
+| 3 | opencode 和 dsh 在流式上的取舍 | [附录：流式的四段链路](streaming-opencode-vs-dsh.md) 全篇 | 第二节 2 |
+| 4 | system prompt 怎么记、怎么排 | [5.3](../05-system-prompt/03-runtime-context/01-runtime-context.md) "对照 dsh" ③；[5.4](../05-system-prompt/04-complete/01-complete.md) "对照 dsh"前半段；代码改名 `PERSONA_PREFIX_SECTION`、`suppressRuntimeContext()` | 第二节 3、4、5 |
+| 5 | 什么时候真的落盘 | [6.3](../06-session/03-durability/01-durability.md) "对照 dsh"；[附录：内存日志什么时候真的落盘](durability-checkpoints.md) ① ③；[6.4](../06-session/04-repair/01-repair.md)、[6.5](../06-session/05-stage-review/01-stage-review.md) 对照表；代码改名 `LIVE_WRITE_BATCH_MAX_DELAY_MS` | 第二节 6、7、8、9 |
+| 6 | 检查放在哪里 | [0.3](../00-env-basics/03-debug/01-debug.md) 第五节；[0.4](../00-env-basics/04-stage-review/01-stage-review.md) 第 4 点；[4.4](../04-tools/04-pipeline/01-pipeline.md) "对照 dsh" ② | 第二节 10、第五节 1 |
+| 7 | 零散更正 | 3.4、3.5 的 dsh 引文；4.1 `replace_all`；4.3 glob 取样；4.5 `str_replace_editor` 改为显式加装；7.1、7.3 `hello.ts` 的出处；1.1–1.3 适配器与 `apiKeyEnv` | 第二节 11 等 |
+
+不在路线上的课不用重读：阶段 1 主体、阶段 7–9 主体（dsh 的 Cordis 源码在两次升级里只有几处和本课程无关的小改动）。
 
 ## 一、先看结论：哪些课要重读
 
