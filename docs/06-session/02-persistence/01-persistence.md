@@ -202,9 +202,9 @@ JSONL 的追加是 `appendFileSync(一行)`：写多少就是多少，O(1)。
 
 它带的四样东西各有各的用：
 
-**`version`——读到不认识的日志时拒绝，而不是猜。** 猜错的代价是把一段历史悄悄读歪，而"历史不会在你背后变"正是整套设计的地基。这个版本号只在**结构性**改动时才动（比如事件包装从 `{type,seq,time,data}` 变形）；往 `SessionEventMap` 里加一个新事件类型不算，6.4 会讲那种情况怎么办。
+**`version`——读到不认识的日志时拒绝，而不是猜。** 猜错的代价是把一段历史悄悄读歪，而"历史不会在你背后变"正是整套设计的地基。这个版本号只在**老版本会把新日志读错**的改动时才动（比如事件包装从 `{type,seq,time,data}` 变形）；往 `SessionEventMap` 里加一个新事件类型不算，6.4 会讲那种情况怎么办，以及 dsh 怎么判断"会不会读错"。
 
-**`cwd`——同一个 id 在不同项目下是不同的会话。** 我们把会话存在 `工作目录/.dsh-learn/sessions/` 下，本身已经按项目分开了；`cwd` 记在头里是为了将来把它们集中存放时还认得出归属。
+**`cwd`——同一个 id 在不同项目下是不同的会话。** 我们把会话存在 `工作目录/.dsh-learn/sessions/` 下，本身已经按项目分开了；`cwd` 记在头里是为了将来把它们集中存放时还认得出归属。dsh 的会话头里也有 `cwd`，意思是会话**最初所在的项目**，写下之后永不改写；0.2.1-alpha.3 起，会话中途可以换的"当前工作目录"是另一回事，记成一条 `working-directory/change` 事件（5.3 的对照里讲过它为什么不进 system prompt）。
 
 **`createdAt` 和 `id`。** id 前半截是时间戳（`20260906-1512`），所以 `ls` 出来就是时间序，`listSessions()` 靠文件名排序而不是 mtime——**mtime 会被 `cp`、备份、同步工具改掉，文件名不会**。
 
@@ -261,7 +261,7 @@ head -1 .dsh-learn/sessions/<id>.jsonl                       # 会话头：版�
 
 ## 对照 dsh
 
-dsh 的 JSONL 后端在 `dsh/packages/session/session-persistence-jsonl/`。同一个包里，我们那 40 行对应的是 `format.ts`（格式）、`storage.ts`（写入调度）、`index.ts`（文件操作）三个文件，加起来 2800 多行。
+dsh 的 JSONL 后端在 `dsh/packages/session/session-persistence-jsonl/`。同一个包里，我们那 40 行对应的是 `format.ts`（格式）、`storage.ts`（写入调度）、`index.ts`（文件操作）三个文件，加起来 2900 多行。
 
 | | 我们的 | dsh 的 | 为什么 dsh 更复杂 |
 |---|---|---|---|

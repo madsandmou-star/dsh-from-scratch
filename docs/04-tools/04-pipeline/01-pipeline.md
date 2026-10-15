@@ -144,9 +144,11 @@ error：Guard「brokenGuard」自己出错了：我自己炸了
 
 一个护栏自己抛异常，结果必须是**拒绝**，不能是放行。理由很直接：**护栏坏掉的时候，"什么都不拦"是最糟的那个结果**。
 
-dsh 把这条写得更狠。它的 `tools/pre-execute` 有三档决定：allow / deny / **ask**（问用户）。而 JSDoc 里明说：
+dsh 把这条写得更狠。它的 `tools/pre-execute` 有四种决定：allow / deny / cancel / **ask**（问用户）。JSDoc 里明说：
 
-> `next()` delegates to allow; **missing approval support turns `ask` into denial.**
+> Allow, deny, cancel, or ask before dispatch. `next()` delegates to allow; `cancel` selects the canonical pre-dispatch cancellation result, and **missing approval support turns `ask` into denial.**
+
+（`cancel` 产出的是标准的"派发前就被取消"那种结果，和 `deny` 的"被拒绝"是两回事——一个说"这次不跑了"，一个说"不许跑"。）
 
 也就是说：如果这套装配里根本没装审批插件，那么"我想问一下用户"这个回答会被解释成**拒绝**，而不是"没人能问，那就放行吧"。**当一个安全判断没法完成时，默认答案是不。** 这条规矩的名字叫 fail-closed，权限、锁、鉴权都适用。
 

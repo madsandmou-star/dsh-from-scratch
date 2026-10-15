@@ -72,6 +72,25 @@ new EventSourceParserStream({ onComment: activity })
 
 SSE 规范允许 `:` 开头的**注释行**当心跳——它不产生任何数据，但证明对端还活着。收到注释就 `pulse()` 重新计时；`parseSse()` 的 JSDoc 把这个参数写成 "pulse the idle watchdog for events and heartbeat comments"（事件和心跳注释都会拍一下看门狗）。
 
+### 光喊停不够：看门狗自己也得"不等了"
+
+看门狗超时时做的第一件事是 abort 那个 signal，让底层把连接掐掉。dsh 原本**只做这一件**：timeout 库的设计笔记（`dsh/.agents/notes/implemented/architecture/2026-07-06-timeout-deadline-library.md`）专门否掉过"拿一个定时器去 `Promise.race`"的做法——race 赢了只是**调用方不等了**，子进程、socket 还在后台跑，资源就漏了；只给 signal、要求干活的那一方自己听着停，才逼得出一条真正的终止路径。
+
+0.2.1-alpha.3 给 `idleWatchdog` 开了一个例外，`next()` 现在是"喊停"和"不等了"一起做：
+
+```ts
+return await Promise.race([
+  iterator.next().finally(() => { timeout.signal.removeEventListener('abort', onAbort) }),
+  expired.promise,
+])
+```
+
+理由写在 `dsh/packages/util/timeout/src/index.ts` 的注释里："A transport can leave a read it aborted pending forever (undici drops the error when the abort lands on an in-flight body read)"——abort 恰好落在一次正在进行的响应体读取上时，Node 的 HTTP 客户端 undici 会把那个错误吞掉，那次读取就**永远挂着**；只靠"喊停然后等它自己停"，调用方会一直等过自己的期限。所以现在两手都做：signal 照样发出去，负责真正掐断 socket；deadline 负责让这一次 `next()` 按时结束。笔记也跟着改了，说它是 "the deliberate exception, and only for the single iterator demand it drives"——**只对它亲自驱动的那一次读取破例**。
+
+适配器那边配了一处改动（`dsh/packages/llm/llm-deepseek/src/adapter.ts` 的 `finally`）：收尾时不再 `await iterator.return()`，改成 `void iterator.return(undefined).catch(() => {})`。注释的理由："A demand the deadline abandoned can stay pending forever, and this generator queues its own return behind that demand, so awaiting the drain would re-hang the settled outcome."——被放弃的那次读取可能永远不结束，生成器的 `return()` 又排在它后面，要是 `await` 它，好不容易按时结束的调用会在收尾时**再挂一次**。
+
+这是"总超时会误杀"之外的第二个教训：**超时要能真正结束等待，而不只是发出一个请求停下的信号**——尤其当你等的那一方不一定守规矩的时候。
+
 ### 超时之后，错误要能被区分
 
 ```ts

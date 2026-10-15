@@ -78,14 +78,18 @@ node --inspect-brk --import tsx src/hello.ts
 
 ## 五、对照 dsh：断言放在哪里
 
-dsh 产品里一直开着的检查，放在**数据进门的那一刻**。`dsh/packages/core/session/src/index.ts` 的 `append()`，一条事件进日志之前先过两道：
+dsh 产品里一直开着的检查，放在**数据进门的那一刻**。`dsh/packages/core/session/src/index.ts` 里，一条事件进日志之前先过两道。第一道在 `append()` 里，紧接着它把事件交给私有方法 `commit()`，第二道是 `commit()` 的第一行：
 
 ```ts
+// append() 里
 validateSessionEventData(event, `session event "${type}" at seq ${event.seq}`)
-this.surfaceManager.validateNext(event as SessionEvent)
+this.commit(event as SessionEvent, entry)
+
+// commit() 的第一行
+this.surfaceManager.validateNext(event)
 ```
 
-任何一道不过就直接抛错，这条事件根本进不了日志。这就是"在关系被破坏的那一刻就炸"：坏数据在写入那一刻被拦住，而不是等三步之后，某个读日志的地方冒出一个莫名其妙的症状。（阶段 2 会看到这两行在 `append()` 里的完整位置。）
+任何一道不过就直接抛错，这条事件根本进不了日志。这就是"在关系被破坏的那一刻就炸"：坏数据在写入那一刻被拦住，而不是等三步之后，某个读日志的地方冒出一个莫名其妙的症状。（阶段 2 会看到 `commit()` 里这一行之后还做了什么。）
 
 dsh 还试过另一种放法，而且刚刚把它整个删了，正好拿来对比：
 

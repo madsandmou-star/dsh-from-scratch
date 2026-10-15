@@ -61,7 +61,7 @@ settle(eventType: 'assistant/message' | 'assistant/attempt', append: () => Sessi
 
 顺序是关键：**先写日志，再发结束帧，结束帧里带着那条日志事件的 `seq`**。UI 收到 `committed` 时，可以把刚才那串临时 chunk 换成日志里那条正式事件；收到 `abandoned` 时，就知道刚才屏幕上那些字**没有成为记录**。
 
-`session.append` 本身（`dsh/packages/core/session/src/index.ts`）的顺序也值得逐行看：
+`session.append` 本身（`dsh/packages/core/session/src/index.ts`）的顺序也值得逐行看。`append()` 造好事件、校验完数据之后，交给私有方法 `commit()` 入库——插件记录（6.4 会提到）也走同一个 `commit()`，所以下面这四步对每一条进日志的东西都成立：
 
 ```ts
 this.surfaceManager.validateNext(event)     // ① 校验：不合规直接抛，根本不进日志

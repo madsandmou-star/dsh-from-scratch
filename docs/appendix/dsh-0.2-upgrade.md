@@ -2,25 +2,25 @@
 
 > 课程的参考版本从 `dsh-v0.1.0-rc.8`（commit `141eb6fef`，2026-08-19）升到了 `0.2.0-rc.2`（commit `639ed0153`，2026-09-29）。这一个多月里 dsh 改掉了好几处课程讲过的机制。这篇附录做两件事：告诉你**哪些课要回头重读**，以及 **dsh 每一处改动的理由**——理由尽量引 dsh 自己的设计笔记（`dsh/.agents/notes/`），笔记里没写的会明确标成"推测"。
 >
-> 之后参考版本又升到了 `0.2.1-alpha.1`（commit `5badb1500`，2026-10-03）。**只想知道最近这一次改了什么，看文末的第五节；想把两次升级要重读的课一起过一遍，按下面的"重学路线"走。**
+> 之后参考版本又升了两次：`0.2.1-alpha.1`（commit `5badb1500`，2026-10-03，第五节）和 `0.2.1-alpha.3`（commit `571902028`，2026-10-14，第六节）。**只想知道最近这一次改了什么，看文末的第六节；想把三次升级要重读的课一起过一遍，按下面的"重学路线"走。**
 >
 > 读这篇不需要先学过阶段 9 之后的东西。
 
-## 重学路线：两次升级合并成一条
+## 重学路线：三次升级合并成一条
 
-两次升级（rc.8 → 0.2.0-rc.2，再到 0.2.1-alpha.1）要重读的课，按主题排成一条路线。前一单元是后一单元的铺垫，按顺序走最省力。最后一列指向下面第二节、第五节里"dsh 为什么这么改"的对应条目。
+三次升级（rc.8 → 0.2.0-rc.2 → 0.2.1-alpha.1 → 0.2.1-alpha.3）要重读的课，按主题排成一条路线。前一单元是后一单元的铺垫，按顺序走最省力。最后一列指向下面第二、五、六节里"dsh 为什么这么改"的对应条目。
 
 | 单元 | 主题 | 读哪几段 | 为什么改 |
 |---|---|---|---|
-| 1 | 流怎么算结束 | [2.1](../02-streaming/01-what-is-sse/01-what-is-sse.md) "`[DONE]` 缺失意味着什么"；[2.2](../02-streaming/02-read-stream/01-read-stream.md) "对照 dsh"；[2.4b](../02-streaming/04-stage-review/03-stream-end-detection.md) "dsh 的解法：空闲看门狗" | 第二节 1 |
-| 2 | 流怎么留档、屏幕怎么对账 | [2.4](../02-streaming/04-stage-review/01-stage-review.md) "原始增量要留档"；[2.4a](../02-streaming/04-stage-review/02-log-and-screen.md) 全篇；[3.2](../03-tool-loop/02-accumulate/01-accumulate.md) "第三行要看清楚"及后面的"准备中" | 第二节 2、第五节 2 |
+| 1 | 流怎么算结束 | [2.1](../02-streaming/01-what-is-sse/01-what-is-sse.md) "`[DONE]` 缺失意味着什么"；[2.2](../02-streaming/02-read-stream/01-read-stream.md) "对照 dsh"；[2.4b](../02-streaming/04-stage-review/03-stream-end-detection.md) "dsh 的解法：空闲看门狗"和新加的"光喊停不够" | 第二节 1、第六节 4 |
+| 2 | 流怎么留档、屏幕怎么对账 | [2.4](../02-streaming/04-stage-review/01-stage-review.md) "原始增量要留档"；[2.4a](../02-streaming/04-stage-review/02-log-and-screen.md) 全篇（`append()` 那段多了 `commit()`）；[3.2](../03-tool-loop/02-accumulate/01-accumulate.md) "第三行要看清楚"及后面的"准备中" | 第二节 2、第五节 2、第六节 5 |
 | 3 | opencode 和 dsh 在流式上的取舍 | [附录：流式的四段链路](streaming-opencode-vs-dsh.md) 全篇 | 第二节 2 |
-| 4 | system prompt 怎么记、怎么排 | [5.3](../05-system-prompt/03-runtime-context/01-runtime-context.md) "对照 dsh" ③；[5.4](../05-system-prompt/04-complete/01-complete.md) "对照 dsh"前半段；代码改名 `PERSONA_PREFIX_SECTION`、`suppressRuntimeContext()` | 第二节 3、4、5 |
-| 5 | 什么时候真的落盘 | [6.3](../06-session/03-durability/01-durability.md) "对照 dsh"；[附录：内存日志什么时候真的落盘](durability-checkpoints.md) ① ③；[6.4](../06-session/04-repair/01-repair.md)、[6.5](../06-session/05-stage-review/01-stage-review.md) 对照表；代码改名 `LIVE_WRITE_BATCH_MAX_DELAY_MS` | 第二节 6、7、8、9 |
-| 6 | 检查放在哪里 | [0.3](../00-env-basics/03-debug/01-debug.md) 第五节；[0.4](../00-env-basics/04-stage-review/01-stage-review.md) 第 4 点；[4.4](../04-tools/04-pipeline/01-pipeline.md) "对照 dsh" ② | 第二节 10、第五节 1 |
-| 7 | 零散更正 | 3.4、3.5 的 dsh 引文；4.1 `replace_all`；4.3 glob 取样；4.5 `str_replace_editor` 改为显式加装；7.1、7.3 `hello.ts` 的出处；1.1–1.3 适配器与 `apiKeyEnv` | 第二节 11 等 |
+| 4 | system prompt 怎么记、怎么排 | [5.1](../05-system-prompt/01-assembly/01-assembly.md) 对照表"变量"一行；[5.2](../05-system-prompt/02-variables/01-variables.md) "对照 dsh"；[5.3](../05-system-prompt/03-runtime-context/01-runtime-context.md) "对照 dsh" ①③④；[5.4](../05-system-prompt/04-complete/01-complete.md) "对照 dsh"前半段；[5.5](../05-system-prompt/05-stage-review/01-stage-review.md) 工程思维第 1 条；代码改名 `PERSONA_PREFIX_SECTION`、`suppressRuntimeContext()` | 第二节 3、4、5，第六节 1 |
+| 5 | 什么时候真的落盘 | [6.2](../06-session/02-persistence/01-persistence.md) 会话头的 `version` 和 `cwd`；[6.3](../06-session/03-durability/01-durability.md) "对照 dsh"；[附录：内存日志什么时候真的落盘](durability-checkpoints.md) ① ③；[6.4](../06-session/04-repair/01-repair.md) 最后两节和对照表；[6.5](../06-session/05-stage-review/01-stage-review.md) ⑥ 和对照表；代码改名 `LIVE_WRITE_BATCH_MAX_DELAY_MS` | 第二节 6–9，第六节 2、3 |
+| 6 | 检查放在哪里 | [0.3](../00-env-basics/03-debug/01-debug.md) 第五节；[0.4](../00-env-basics/04-stage-review/01-stage-review.md) 第 4 点；[4.4](../04-tools/04-pipeline/01-pipeline.md) "规矩一"里的四种决定和"对照 dsh" ② | 第二节 10、第五节 1、第六节 5 |
+| 7 | 零散更正 | 3.4、3.5 的 dsh 引文；4.1 `replace_all`；4.3 glob 取样；4.5 `str_replace_editor` 改为显式加装；7.1、7.3 `hello.ts` 的出处；1.1–1.3 适配器与 `apiKeyEnv`；0.1 的 tsx 出处；[9.1](../09-effects/01-effect/01-effect.md) 对照表"一个插件的多个 effect""失败隔离"两行 | 第二节 11、第六节 5 |
 
-不在路线上的课不用重读：阶段 1 主体、阶段 7–9 主体（dsh 的 Cordis 源码在两次升级里只有几处和本课程无关的小改动）。
+不在路线上的课不用重读：阶段 1 主体、阶段 7–9 主体（dsh 的 Cordis 源码在三次升级里只有几处和本课程无关的小改动；9.1 对照表那两行是课程自己读错了，不是 Cordis 变了）。
 
 ## 一、先看结论：哪些课要重读
 
@@ -140,6 +140,8 @@ Messages 协议把**思维链、思维链的签名、工具调用、工具结果
 
 **带走的判断。** 这是阶段 9 马上要讲的东西。"注册顺序即拆卸顺序"只在**一个插件内部**成立；跨插件的时候，要靠"做完一轮还有就再做一轮"这种不依赖顺序的写法。
 
+**后续。** 0.2.1-alpha.3 又改了一次：连"一个插件内部"都要打折扣——同一个插件的多个 effect 卸载时是并发启动的；dsh 把"先撤服务、等消费者收尾 → 摘监听器 → 排干关句柄"写进同一个生成器 effect，顺序才真正成立。见第六节 3。
+
 ### 9. 旧日志不再直接拒绝，而是逐级升级
 
 **改了什么。** 会话格式到了 v4。0.1 时代的思路是"版本不对就拒绝"；0.2 有 `session-format-v0-to-v1` 到 `v3-to-v4` 四个相邻升级包，旧日志读的时候逐级升上来，**原文件不动**，另存一份新版本。
@@ -147,6 +149,8 @@ Messages 协议把**思维链、思维链的签名、工具调用、工具结果
 **理由。** `dsh/.agents/notes/implemented/architecture/2026-08-31-released-session-format-migrations.md` 第一句："Session format v0 shipped in an alpha release, so a structural writer change can no longer treat existing JSONL as disposable pre-release state."——v0 已经随 alpha 版发出去了，用户手里有真实会话，不能再当成可以扔掉的预发布数据。
 
 **带走的判断。** 6.4 我们学的是"拿不准就加版本号"。版本号只解决"认出来"；一旦有了真实用户，还得解决"认出来之后怎么办"。**格式一旦发布，就成了你对用户的承诺。**
+
+**后续。** 正因为每加一次版本都要多一个永久的升级包，0.2.1-alpha.3 把"拿不准就加"这条建议撤掉了，判据换成"已发布的老读者实际会怎么做"。见第六节 2。
 
 ### 10. 运行时不变量从"每个包都有"收缩到 38 个
 
@@ -230,3 +234,77 @@ Messages 协议把**思维链、思维链的签名、工具调用、工具结果
 ### 这一次升级本身教了什么
 
 这次三套机械检查（路径、引文、标识符）一共只报了 5 处，全部指向同一件事：不变量被删。真正多出来的发现来自去读那几份设计笔记：**0.3 原来写的"dsh 把它做成了常驻的检查"在上一个版本就已经不对了**——它们 8 月起就不在正式装配里跑。**"代码存在"和"代码在用户那边运行"是两件事**，对照源码时两者都要核实。
+
+## 六、第三次升级：0.2.1-alpha.1 → 0.2.1-alpha.3
+
+> 参考版本从 `0.2.1-alpha.1`（commit `5badb1500`，2026-10-03）升到 `0.2.1-alpha.3`（commit `571902028`，2026-10-14）。上游这 11 天有 1161 个提交、5281 个文件变动，大头在 Web 界面（`packages/client`，867 个文件）、快照（721）和实验包（545）。**和课程有关的是四件事**，外加几处课程自己的旧错——这次多加了一道检查才把它们找出来。
+
+### 要重读的课
+
+| 课 | 变了什么 | 程度 |
+|---|---|---|
+| [5.3 动态上下文不进 system prompt](../05-system-prompt/03-runtime-context/01-runtime-context.md) | 新增"对照 dsh"④：工作目录、Web 地址、源码路径全部搬出 system prompt；`required`、`interpolate: false`、发请求前再刷新。另更正一处旧错：快照消息的来源标记早就是 `{ kind: 'runtime-context', … }` 了 | 必须重读 ④ |
+| [5.5 阶段验收](../05-system-prompt/05-stage-review/01-stage-review.md) | 工程思维第 1 条补了 dsh 这个反例：判据没错，错在对"寿命"的估计 | 必须重读第 1 条 |
+| [6.4 坏了怎么办](../06-session/04-repair/01-repair.md) | "格式版本什么时候必须加"重写：判据从"写出来的东西变没变"换成"已发布的老读者实际会怎么做"；`ignorable` 一节加了插件记录 | 必须重读最后两节 |
+| [附录：内存日志什么时候真的落盘](durability-checkpoints.md) | ③ 重写：拆卸顺序从"不依赖顺序"变成"把顺序组合出来"，以及 Cordis 卸载为什么是并发的 | 必须重读 ③ |
+| [9.1 注册了就撤不回来](../09-effects/01-effect/01-effect.md) | **旧错**：对照表说 dsh 的 effect "有失败隔离"——同一个 effect 里其实没有；另加一行"一个插件的多个 effect 卸载时并发启动"。9.2 要用 | 必须重读对照表 |
+| [2.4b 流到底怎么算结束](../02-streaming/04-stage-review/03-stream-end-detection.md) | 新增"光喊停不够"：看门狗超时后自己也不再等 | 建议读 |
+| [5.1](../05-system-prompt/01-assembly/01-assembly.md)、[5.2](../05-system-prompt/02-variables/01-variables.md)、[5.4](../05-system-prompt/04-complete/01-complete.md) | 循环不再提供 `{{cwd}}`；dsh 段落和动态上下文都能声明不插值；persona 后缀现在是空的 | 快速过 |
+| [6.2](../06-session/02-persistence/01-persistence.md)、[6.5](../06-session/05-stage-review/01-stage-review.md) | 会话头的 `cwd` 是"最初的项目"，和会话里可以换的工作目录分开了；⑥ 跟着 6.4 改 | 快速过 |
+| [0.3](../00-env-basics/03-debug/01-debug.md)、[2.4a](../02-streaming/04-stage-review/02-log-and-screen.md) | `append()` 把入库那几步拆进了私有方法 `commit()`，顺序没变 | 快速过 |
+| [4.4 执行前后](../04-tools/04-pipeline/01-pipeline.md) | **旧错**：`tools/pre-execute` 是四种决定（多一个 `cancel`），不是三档；引文换成完整原句 | 快速过 |
+| [0.1 Node 与 pnpm](../00-env-basics/01-node-pnpm/01-node-pnpm.md) | **旧错**：`node --import tsx/esm` 的出处是 dsh 的 AGENTS.md 和一份设计笔记，不是 `development.md`；workspace 那段 YAML 标成节选；包组 54 → 52 | 快速过 |
+
+### 1. 工作目录、Web 地址、源码路径搬出 system prompt
+
+**改了什么。** 新包 `dsh/packages/session/working-directory/` 给每个会话管一个"当前工作目录"：它是一条日志里的状态（`working-directory/change` 事件），会话中途可以换（配套的 `working_directory` 工具），模型通过一条**必需的**运行时上下文看到它（`Current working directory: "…".`）。循环不再注册 `{{cwd}}` 变量，所有自带装配里的 `Your working directory is {{cwd}}.` 都删了。10 月 11 日，dsh 源码路径和 Web 界面地址也挪进了运行时上下文。`systemPrompt` 跟着多了三样东西：上下文可以标 `required`（关掉动态上下文时照发）、可以标 `interpolate: false`（目录名里的 `{{` 不当变量）、每次发请求前 `refreshContext()` 重新读一遍注册的上下文。
+
+**理由。** 三份笔记，按时间排正好是一次"改主意"：
+
+- 2026-09-06（`dsh/.agents/notes/archived/bug-fix/2026-09-06-environment-prompt-suffix.md`）：这些值每台机器都不一样，放在开头会让提示词"diverge near their beginning"，所以挪到 system prompt **末尾**。当时否掉了"挪进运行时上下文"："That changes their message role and persistence placement rather than only separating system sections."
+- 2026-09-13（`dsh/.agents/notes/implemented/architecture/2026-09-13-session-working-directory.md`）：一个任务可能在对话中途换检出目录，固定的创建目录表达不了；"Putting mutable directory information in the system prompt changes the reusable prompt prefix."——被否掉的方案正是"Keep directory text in the system prompt"，理由："Mutable operational context belongs after retained history, using the same user-context mechanism as permission state."
+- 2026-10-11（`dsh/.agents/notes/implemented/bug-fix/2026-10-11-process-specific-prompt-values-in-runtime-context.md`）：Desktop 每次启动端口随机，换检出目录、换安装方式也会让源码路径变。续聊时 system prompt 重新渲染，文字变了；在不支持"历史中间插 system 消息"的线路上，这会改写开头那个 system 节点，而 Claude 把历史思维块的签名绑在包括 system prompt 在内的前缀上，于是直接返回 400，环境恢复原样之前会话续不上。老会话为了不改写开头，靠一个投影把日志里旧格式的段落原样保留。
+
+**代价。** 运行时上下文多了几行；自定义 persona 里要是还写着 `{{cwd}}`，组装会直接报错（`dsh/packages/core/system-prompt/README.md` 专门写了迁移说明）；工作目录和原始目录都没了的时候，所有模型请求都会被拒绝，要人工恢复。
+
+**带走的判断。** 第一步优化的是**跨机器**的前缀复用，后两步撞上的是**跨时间**：同一个会话的两次请求之间，值变了。5.5 那条"一句话放在哪里，取决于它随谁生灭"没有错，错在对寿命的估计——会话会中途换目录，会跨进程续聊，进程里的值活不到那时候。
+
+### 2. 格式版本：从"拿不准就加"到"看老读者实际怎么做"
+
+**改了什么。** `SESSION_FORMAT_VERSION` 的注释整段重写（`dsh/packages/core/session/src/types.ts`）。旧的："bump exactly when an older runtime could no longer handle a new log with full semantic correctness"，外加 "When in doubt, bump"。新的："Retain it when older readers resume correctly, preserve safely ignorable records, or refuse required features before execution, mutation, or tail repair. ... Bump when an existing discriminator cannot prevent unsafe interpretation; a structural difference alone is insufficient."
+
+**理由。** `dsh/.agents/notes/implemented/process/2026-10-08-session-reader-compatibility-review.md`。两个方向：加版本不便宜——"A global bump also excludes feature-free sessions and requires a new generation and adjacent migration"；"不认识就会拒绝"也不是自动成立的——"permissive readers can ignore required meaning, and recovery can mistake unsupported records for damaged tails"。所以要拿出已发布读者实际行为的证据，不能从 schema 差异推。笔记说明这条决定只改审查和确认的流程，不改运行时的准入、诊断、编解码和迁移行为。
+
+**带走的判断。** "往安全那边偏"本身也要算账。旧规则把加版本的代价估成"几乎免费"，新规则把账算全了：多一代格式、一个永久维护的升级包、把老读者挡在所有新会话门外。保护老读者的不是版本号，是老读者在动手之前会不会停下来。
+
+### 3. 持久化插件：拆卸顺序靠"组合"
+
+**改了什么。** JSONL 持久化从"一个服务类"改成函数插件（`name`/`Config`/`apply`）。`apply()` 用一个生成器 effect 把三件事排成一条链：先挂监听器和句柄，再挂真正提供 `sessionPersistence` 的子插件；卸载时倒过来——先撤服务、**等所有注入了它的插件收尾完**，再摘监听器，最后排干、关句柄。`close()` 里"排到空为止"的循环保留。
+
+**理由。** 提交 `4d9047be2d`（"fix(session): retain JSONL resources through provider-triggered teardown"）和包的 README："Unloading the backend waits for the consumer unloads it triggers through `sessionPersistence` injection before removing live-event listeners and draining and closing remaining handles." 配套测试是一个在异步收尾里才追加 `turn/end` 的消费者，要求这条事件落盘。为什么不靠注册顺序：一份提案笔记（`dsh/.agents/notes/proposed/architecture/2026-10-09-cordis-cleanup-dependency-lifetimes.md`）审了全仓库同类问题，原话 "reverse invocation still starts sibling async cleanup concurrently"——Cordis 卸载一个插件时，它身上的 effect 是用 `Promise.all` 同时启动的。
+
+**代价。** 只覆盖"撤掉这个服务"触发的卸载。README 写明 "Concurrent root disposal is not ordered"；提案笔记把"整个应用关闭时，循环收尾发出的最后几条事件可能丢"列为 P0，还没修。
+
+**带走的判断。** 要让 B 等 A 收完，把它们放进同一个 effect 里 `yield`，别指望注册的先后；规则是笔记里那句 "Stop admitting new work, settle accepted work and final publication, then drain and release the resource."——9.2 讲卸载时会正面用到。
+
+### 4. 空闲看门狗自己也"不等了"
+
+**改了什么。** `idleWatchdog().next()` 现在拿 `iterator.next()` 和一个到期 promise 去 `Promise.race`；适配器收尾时不再 `await iterator.return()`，改成丢出去不等。
+
+**理由。** `dsh/packages/util/timeout/src/index.ts` 的注释："A transport can leave a read it aborted pending forever (undici drops the error when the abort lands on an in-flight body read)"。timeout 库的设计笔记原本否掉过"拿定时器去 race"（race 赢了，底层的活还在跑），这次改成 "`idleWatchdog` is the deliberate exception, and only for the single iterator demand it drives"。
+
+**带走的判断。** "只发信号、让干活的一方自己停"是对的默认；但当对方可能永远不停时，等待的一方得自己有一个能真正结束的期限。两条不矛盾：信号负责释放资源，期限负责结束等待。
+
+### 5. 其他
+
+- `Session.append()` 拆出两个私有方法：`publicationEntry()`（重入检查）和 `commit()`（surface 校验 → 固定订阅者 → 入库 → 广播），新的插件记录（`appendPluginRecord()`，只许 `packages/experimental/` 调用）走同一个 `commit()`。插件记录的理由在 `dsh/.agents/notes/implemented/architecture/2026-08-30-retain-ignorable-external-session-events.md`：实验包的状态如果声明成正式事件，就是"必需"的，没装那个实验包的版本会拒绝整个会话。
+- 数字：包 319 → 336（`experimental/` 从 24 个到 46 个，hooks、webhook、ralph 等一批包挪了进去），包组 54 → 52，`src/` 41.3 万 → 43.2 万行，`core/session` 3153 → 3324 行，`session/` 20 个包 17705 行 → 21 个包 18185 行，`system-prompt/src/index.ts` 638 → 691 行。
+- 四处课程旧错（不是这次 dsh 改的，是这次复核时才发现的）：5.3 的来源标记写法从 0.2.0-rc.2 起就不对了；4.4 的"三档决定"在 0.2.0-rc.2 时就已经是四种，当时只改了 3.5 的引文、漏了 4.4；9.1 把 Cordis 插件级的失败隔离说成了 effect 级的；0.1 把 tsx 的出处写成了 `development.md`。
+
+### 这一次升级本身教了什么
+
+**一、** 机械检查（路径、引文、标识符）一共只报了 9 处，全集中在三件事上：`append()` 的拆分、持久化的拆卸、格式版本那段注释。工作目录那件大事**一行引文都没碰到**——课程从来没有逐字引过 `{{cwd}}` 那条注册，只在讲义里转述过"dsh 自带的装配只把这一句放后缀"。**转述不会触发任何检查。** 是逐个去读"课程引用过、这次又改过"的那 40 来个文件和几份新笔记，才看出来。
+
+**二、** 那四处旧错是怎么漏掉的：前面几套检查都是"旧版有、新版没有"，**两个版本里都没有的话**（早在上上次升级就过时了），它们看不见。这次加了一道新检查：把讲义里归到 dsh 名下的代码块逐行拿去新版里找，找不到的人工复核——5.3 那两行就是这么抓到的。另外三处是读源码读出来的：读到 agent 循环里一句新注释 "Cordis skips later disposers after a rejection"，才回头发现 9.1 写反了。
+
+**三、** dsh 这次推翻了两条课程当作原则来教的东西："拿不准就加版本号"和"`{{cwd}}` 随会话生灭，所以放 system prompt"。两次都写了笔记，都说清了旧判断错在哪：一个是把代价估低了，一个是把寿命估短了。**原则本身都还在**（两种错里选代价小的那种；一句话放哪看它随谁生灭），**改的是代入原则的那个估计**。读设计笔记最值钱的就是这个：看清一个判断是原则错了，还是估计错了。

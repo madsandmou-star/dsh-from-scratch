@@ -270,13 +270,13 @@ DSH_SHOW_PROMPT=1 npm run dev
 
 ## 对照 dsh
 
-`dsh/packages/core/system-prompt/src/index.ts`（638 行）比我们这 90 行多的东西：
+`dsh/packages/core/system-prompt/src/index.ts`（691 行）比我们这 90 行多的东西：
 
 | | 我们的 | dsh |
 |---|---|---|
 | 注册 | `registry.register()` | `ctx.systemPrompt.section()`，绑在插件生命周期上，插件卸载自动撤销 |
 | 段落文本 | `string \| (() => string)` | `string \| ((context: AssembleContext) => string)`，**每次组装带上下文**（哪个 agent、哪个 scope） |
-| 变量 | 无 | `{{cwd}}` `{{model}}` `{{provider}}`，组装完再插值（**5.2**） |
+| 变量 | 无 | 循环提供 `{{model}}` `{{provider}}`，别的插件可以注册自己的；组装完再插值（**5.2**）。0.2.1-alpha.3 起不再提供 `{{cwd}}`，工作目录改走动态上下文（**5.3**） |
 | 动态信息 | 无 | `context()` 是**另一套东西**，不拼进 system prompt（**5.3**） |
 | 工具 schema | 单独发在请求的 `tools` 字段 | 也归 systemPrompt 管，还能配 `toolOrder` |
 | 整体替换 | 无 | `complete: true`（**5.4**） |

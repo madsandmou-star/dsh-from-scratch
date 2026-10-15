@@ -239,30 +239,54 @@ dsh 的扫描器也是这么做的：`dsh/packages/session/session-persistence-j
 
 注意"忘了标"这个措辞——它承认人会犯错，然后**把默认值设在犯错代价小的那一边**。这是一条通用的 API 设计原则：**默认值不是"最常见的选择"，是"搞错时损失最小的选择"。**
 
+dsh 0.2.1-alpha.3 给这个标记开了一个正式的用途：**插件记录**。`dsh/packages/core/session/src/index.ts` 里的 `appendPluginRecord(session, 'plugin:…', data)` 写一条类型以 `plugin:` 开头、带 `ignorable: true` 的事件，它不在 `SessionEventMap` 里，模型永远看不到，不认识它的读者原样保留、跳过。只有 `packages/experimental/` 下的代码允许调它（有一道仓库门禁检查）。为什么不让实验性的包像正式包一样声明自己的事件类型？设计笔记 `dsh/.agents/notes/implemented/architecture/2026-08-30-retain-ignorable-external-session-events.md` 的回答正好是上面那条默认值的反面："each member is required-on-read ... a build without the experimental package refuses the Session"——正式声明的事件默认是必需的，没装这个实验包的版本就会拒绝整个会话。**实验性的状态丢了无所谓，所以它该标成可忽略；正式的状态丢了会读错，所以它必须是必需的。** 同一个标记，用在哪边由"丢了会怎样"决定。
+
 ## 格式版本什么时候必须加
 
 两个机制管两件不同的事，很容易搞混：
 
 | | 管什么 | 加一个新事件类型 |
 |---|---|---|
-| `ignorable` | **词汇表变大** | 这是它的职责 |
-| `SESSION_FORMAT_VERSION` | **结构变了** | 不加版本 |
+| `ignorable` | **词汇表变大**：遇到不认识的事件类型怎么办 | 这是它的职责 |
+| `SESSION_FORMAT_VERSION` | **老读者会不会把新日志读错**，而现有的标记拦不住 | 不加版本 |
 
-dsh 把判断标准写在 `SESSION_FORMAT_VERSION` 的注释里，非常精确：
+dsh 把判断标准写在 `SESSION_FORMAT_VERSION` 的注释里（`dsh/packages/core/session/src/types.ts`）。这条标准在 0.2.1-alpha.3 改过一次，**新旧两版放在一起看，比只看哪一版都有用**。
+
+**旧标准：看写出来的东西有没有变。** 到 0.2.1-alpha.1 为止，注释开宗明义说"Whether a bump is needed is decided by what the WRITER emits"（加不加版本，看写的一方产出了什么），判据是：
 
 > bump exactly when an older runtime could no longer handle a new log with full semantic correctness ("parses without error" is not correctness — silently skipping content that shapes reconstruction is a wrong read).
 >
 > （**老运行时不再能以完整的语义正确性处理新日志时**，才加版本。"能解析不报错"不等于正确——悄悄跳过影响重建的内容，就是一次错误的读取。）
 
-够得上这条标准的只有结构性改动：会话头的形状、`SessionEvent` 包装的形状、核心事件的语义、surface 机制。
-
-还有一句收尾的实用建议：
+它接着断言"够得上这条标准的只有结构性改动"（会话头的形状、`SessionEvent` 包装、核心事件的语义、surface 机制），并给了一句实用建议：
 
 > When in doubt, bump: a near-identity upgrade step is almost free, a missed bump makes older runtimes read new logs wrong silently.
 >
 > （**拿不准就加**：一个几乎什么都不做的升级步骤几乎免费，而漏加一次会让老版本悄悄把新日志读错。）
 
 和 `ignorable` 同一个形状的判断：两种错里选代价小的那一种。
+
+这段旧注释在现在的 `dsh/` 里已经找不到了。想自己看旧版本的文件，用 `git show <commit>:<路径>`；`dsh/` 是浅克隆，旧 commit 要先单独取回来：
+
+```sh
+git -C dsh fetch --depth=1 origin 5badb15009ae1756c3afe0ae0cef1faafc290ccc
+git -C dsh show 5badb1500:packages/core/session/src/types.ts | grep -n -A12 "major/minor split"
+```
+
+**新标准：看已经发布出去的老读者实际会怎么做。** 现在的注释：
+
+> Retain it when older readers resume correctly, preserve safely ignorable records, or refuse required features before execution, mutation, or tail repair. ... Bump when an existing discriminator cannot prevent unsafe interpretation; a structural difference alone is insufficient.
+>
+> （老读者能正确续上、能把可以安全忽略的记录原样保留、或者能在**执行、修改、修尾之前**就拒绝它不支持的必需特性——这三种情况都**不加版本**。只有现有的区分标记拦不住错误解读时才加；**光是结构不同，不够。**）
+
+为什么改？那份新笔记（`dsh/.agents/notes/implemented/process/2026-10-08-session-reader-compatibility-review.md`）从两个方向否定了旧标准：
+
+- **加版本并不"几乎免费"。** 笔记举的例子是会话头里一个可选的环境字段：不用这个特性的会话，写出来的日志和以前一字不差；要用它的会话，老读者可以直接拒绝。如果因为"结构变了"就全局加版本，老版本就连那些**根本没用这个特性**的会话也打不开了，而且每加一次都要多一代格式、多写一个相邻升级包（本课末尾对照表里的 `v0-to-v1` … `v3-to-v4` 四个升级包就是这么来的）——"A global bump also excludes feature-free sessions and requires a new generation and adjacent migration."
+- **"不认识就会拒绝"也不是自动成立的。** "an unknown field or value does not establish safe refusal: permissive readers can ignore required meaning, and recovery can mistake unsupported records for damaged tails"——宽松的读者会把不认识的字段直接忽略掉；更糟的是，修尾逻辑可能把一条"不支持"的记录当成"崩溃留下的半行"给截掉。所以注释里那句 "Unknown fields and values require evidence of the released reader's actual admission behavior"：要拿出**已发布的那个老版本实际怎么处理**的证据，不能从 schema 的差异推出来。
+
+还有一句划清了两个机制的边界："The per-event `SessionEvent.ignorable` marker governs unknown event types, not arbitrary nested payload changes."——`ignorable` 只管**整条事件类型**不认识的情况；一个老事件的 payload 里多了一个字段，它管不到。
+
+**这次改动的教训，是"往安全那边偏"本身也要算账。** 旧标准是"拿不准就加"，把代价想成"一个几乎免费的升级步骤"；新标准把账算全了：多一代格式、多一个永久要维护的升级包、把老读者挡在所有新会话门外。真正保护老读者的不是版本号，而是**老读者在动手之前会不会停下来**——这得去看老读者的代码、跑老读者的测试，而不是盯着 schema 的 diff。我们的 `loadSession()` 只有一个版本、不认识就拒绝，正好是新标准里"在执行之前拒绝"那一种，所以不用改。
 
 ## 教 debug：错误信息里那个行号是给你用的
 

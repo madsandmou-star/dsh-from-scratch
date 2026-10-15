@@ -69,11 +69,11 @@ node --import tsx src/hello.ts 小明
 node --experimental-strip-types src/hello.ts
 ```
 
-两条命令做的是同一件事。之所以课程默认用 tsx，是因为 dsh 也用它（连 `dsh` 命令自己从源码启动时走的都是 `node --import tsx/esm`，见 `dsh/docs/development.md`）——保持一致，你才能顺手去跑参考源码里的东西。
+两条命令做的是同一件事。之所以课程默认用 tsx，是因为 dsh 也用它（连 `dsh` 命令自己从源码启动时走的都是 `node --import tsx/esm`，见 `dsh/AGENTS.md` 的 Conventions 一节和设计笔记 `dsh/.agents/notes/implemented/architecture/2026-07-29-dsh-source-launch-tsx-esm.md`）——保持一致，你才能顺手去跑参考源码里的东西。
 
 ## workspace：一个仓库里的几十个包
 
-dsh 不是一个包，是 300 多个包住在一个仓库里（按 `dsh/packages/<组>/<包>/` 分成 54 个包组），彼此用包名互相引用，比如 `import ... from '@deepseek-ai/dsh-llm'`。这种布局叫 **monorepo**，pnpm 用 `dsh/pnpm-workspace.yaml` 声明哪些目录算成员：
+dsh 不是一个包，是 300 多个包住在一个仓库里（按 `dsh/packages/<组>/<包>/` 分成 52 个包组），彼此用包名互相引用，比如 `import ... from '@deepseek-ai/dsh-llm'`。这种布局叫 **monorepo**，pnpm 用 `dsh/pnpm-workspace.yaml` 声明哪些目录算成员（节选，完整的还有 `native/system`、`benchmarks`、`website` 等几项）：
 
 ```yaml
 packages:

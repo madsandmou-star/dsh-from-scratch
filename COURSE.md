@@ -309,7 +309,7 @@ src/types.ts       # 改：ToolCall、tool role
 - **6.5 [阶段验收](docs/06-session/05-stage-review/01-stage-review.md)** ✅
   - 四节课是同一个问题的四层：**"发生过什么"怎么才能真的可信**
   - 七条工程判断（拆结构看几个冲突的理由、格式决定失败粒度、默认值选代价小的一边…）
-  - 对照 `dsh/packages/core/session/`、`dsh/packages/session/`：614 行 vs 3153 + 17705 行
+  - 对照 `dsh/packages/core/session/`、`dsh/packages/session/`：614 行 vs 3324 + 18185 行
 
 ## 第二阶段 · 演进成 dsh
 

@@ -306,7 +306,8 @@ const dispose = () => {
 | 诊断 | 没有 | `label` + `Context.effect` 符号挂出整棵 effect 树 | 不复刻 |
 | 卸载中再注册 | 不管 | 抛 `INACTIVE_EFFECT` | **9.2** |
 | 异步归还 | 串行 `await` | 链式 `then`，同步的不强制变异步 | 不复刻 |
-| 失败隔离 | 没有（一个抛错后面全不收） | 有 | 9.2 |
+| 一个插件的多个 effect | 整个 context 一条队，逆序、一个等一个 | **并发启动**：卸载插件时 `_unload()` 用 `Promise.all` 同时跑它身上所有 effect，倒序只排了起跑顺序；要"一个等一个"，得放进同一个 effect 里 `yield` | 9.2 |
+| 失败隔离 | 没有（一个抛错后面全不收） | **分两层**：同一个 effect 里，一个归还函数失败，后面的就不跑了（agent 循环的注释原话："Cordis skips later disposers after a rejection"）；同一个插件的不同 effect 之间互不影响，各自 `try/catch` 记日志 | 9.2 |
 
 第四行值得留意：dsh 里**卸载进行中再调 `ctx.effect()` 会直接抛错**。想想为什么——一个正在被收掉的 context 上又登记了新资源，那个资源永远不会被收。9.2 讲卸载时会回到这里。
 

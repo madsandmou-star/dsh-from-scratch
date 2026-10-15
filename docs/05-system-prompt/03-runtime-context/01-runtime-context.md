@@ -166,13 +166,15 @@ for (let step = 1; step <= MAX_STEPS; step++) {
 - 不是 `assistant`——那是模型自己说的话，冒充它会污染模型对"我说过什么"的判断
 - 不是 `tool`——`tool` 消息必须有一个 `tool_call_id` 和之配对（3.4 讲过），它不是任何调用的结果
 
-**剩下只有 `user`。** 这是一个协议限制下的务实选择，不是说它"是用户说的"。dsh 在这里更进一步：它的会话日志里，这条消息带着来源标记
+**剩下只有 `user`。** 这是一个协议限制下的务实选择，不是说它"是用户说的"。dsh 在这里更进一步：它的会话日志里，这条消息带着来源标记（`dsh/packages/core/agent-loop/src/runtime-context.ts`）
 
 ```ts
-source: { kind: 'plugin', plugin: '@deepseek-ai/dsh-system-prompt', form: 'snapshot', sections }
+source: sections.length === 0
+  ? { kind: SOURCE }                                // 那条"没有了"的消息，没有可归属的部分
+  : { kind: SOURCE, form: 'snapshot', sections },   // SOURCE = 'runtime-context'
 ```
 
-**wire 上是 user，日志里知道它是插件生成的快照，还知道由哪几个部分拼成。** 界面因此可以把它折叠起来、单独渲染，而不是当成用户真的说了一句话。这就是「模型可见 ⟺ 已落日志」在这里的完整形态——不只是"记下来了"，还包括"记下了它是谁"。
+**wire 上是 user，日志里知道它是运行时上下文快照、不是用户说的话，还知道由哪几个部分拼成。** 界面因此可以把它折叠起来、单独渲染，而不是当成用户真的说了一句话。这就是「模型可见 ⟺ 已落日志」在这里的完整形态——不只是"记下来了"，还包括"记下了它是谁"。
 
 ## "取代之前的"这句话在干活
 
@@ -291,19 +293,14 @@ console.dir(messages.slice(-3), { depth: null })   // 在每次 chatStream 之�
 | 拼装 | 一个字符串 | `AssembledContext[]`，**保留每段的名字**，界面能逐段归属 |
 | 变成消息 | `messages.push()` | `RuntimeContextProjection.project()` 产出一条带 `source` 的 `UserMessage` |
 | "上次发了什么" | 一个变量 | 从 `session/event` 推导 |
-| 插入位置 | 历史末尾 | `agent/pre-step` waterfall 的默认决定：`[...claimed, context]` |
+| 插入位置 | 历史末尾 | `agent/pre-step` waterfall 的默认决定：`[...claimed, context]`；真正发请求前再刷新一次（见 ④） |
+| 关掉动态上下文 | 5.4 才加：一个开关全关 | 只关**可选**的；标了 `required: true` 的照发（见 ④） |
 | 还有别的产生方式吗 | 没有 | 有——插件可以直接挂 `agent/pre-step` 自己追加（`time-context` 就是，它还带自己的刷新间隔） |
 | system prompt 本身 | 每次现拼，不留痕迹 | **也进日志**：一条 `system/message` 事件（见下面 ③） |
 
-三处值得展开：
+四处值得展开：
 
-**① 保留每段的名字。** dsh 的快照不是一个字符串，是一串 `{ name, text }`：
-
-```ts
-source: { kind: 'plugin', plugin: SOURCE, form: 'snapshot', sections }
-```
-
-界面拿到这条消息时，能说清"这一段来自 sandbox 策略、那一段来自审批策略"，而不用去反向切分那段拼好的散文。**又是 4.1 讲过的那条：一旦返回值要同时服务模型和界面，字符串就不够用了。**
+**① 保留每段的名字。** dsh 的快照不是一个字符串，是一串 `{ name, text }`，就是前面那个来源标记里的 `sections`。界面拿到这条消息时，能说清"这一段来自 sandbox 策略、那一段来自审批策略"，而不用去反向切分那段拼好的散文。**又是 4.1 讲过的那条：一旦返回值要同时服务模型和界面，字符串就不够用了。**
 
 **② 插入点是一个 waterfall 的默认值。** `agent/pre-step` 的默认决定是 `{ kind: 'enter', messages: [...claimed, context] }`——也就是说，**插件可以改这个决定**：可以在快照前面再插点东西，也可以整个拒绝这一步（`kind: 'reject'`）。我们那句 `appendContextSnapshot()` 是写死的，dsh 那句是一个可以被接管的默认值。
 
@@ -320,6 +317,38 @@ system prompt 变了怎么办？同文件的 `SystemPromptProjection` 注释：
 前一半和我们这一课的快照是**同一个思路**：新的东西追加在后面，不动前缀，缓存不失效。只有供应商做不到时才退回到"改开头"。
 
 顺带一提，真实的 dsh 里"当前时间"**不走** `systemPrompt.context()`——它是一个独立的包 `dsh/packages/context/time-context/`，直接挂 `agent/pre-step`，因为它有自己的刷新节奏（不是每步都发，而是超过一个间隔才发）。**同一个位置有两条路：统一快照，和自己接管。** 前者简单，后者能带自己的策略。
+
+**④ 工作目录也搬出了 system prompt（0.2.1-alpha.3）。** 5.2 我们把"当前工作目录是 {{cwd}}"写进了 system prompt。dsh 走过同一条路，然后在一个多月里分三步改了主意，每一步都有设计笔记：
+
+| 时间 | 做了什么 | 笔记里的理由 |
+|---|---|---|
+| 2026-09-06 | 工作目录、本机 Web 地址、dsh 源码路径挪到 system prompt **末尾**（5.4 的 persona 后缀） | 放在开头，不同机器的提示词会"diverge near their beginning"，前缀缓存用不上。当时明确否掉了"挪进运行时上下文"，理由是那样会"changes their message role and persistence placement" |
+| 2026-09-13 | 工作目录变成会话里**可以改的状态**（一条 `working-directory/change` 事件），以一条**必需的**运行时上下文发给模型 | "Putting mutable directory information in the system prompt changes the reusable prompt prefix."——被否掉的方案正是"Keep directory text in the system prompt" |
+| 2026-10-11 | 源码路径和 Web 地址也挪进运行时上下文 | Desktop 每次启动端口都随机；续聊时 system prompt 重新渲染、文字变了，在不支持"历史中间插 system 消息"的线路上会改写开头那个 system 节点，Claude 把历史思维块的签名绑在前缀上，直接回 400，环境恢复原样之前会话续不上 |
+
+三份笔记依次是 `dsh/.agents/notes/archived/bug-fix/2026-09-06-environment-prompt-suffix.md`、`dsh/.agents/notes/implemented/architecture/2026-09-13-session-working-directory.md`、`dsh/.agents/notes/implemented/bug-fix/2026-10-11-process-specific-prompt-values-in-runtime-context.md`。
+
+第一步优化的是**跨机器**：让不同用户的提示词开头一样长。后两步撞上的是**跨时间**：同一个会话的两次请求之间，值变了。这正是本课开头的痛点 ① 和 ②，只不过变的不是"现在几点"，而是一个看起来"整个会话都不变"的东西。**"随会话不变"要按会话的真实寿命来检验**：会话可以中途换目录，也可以关掉程序第二天续聊，进程里的端口、路径活不到那时候。
+
+新的注册在 `dsh/packages/session/working-directory/src/index.ts`：
+
+```ts
+ctx.systemPrompt.context({
+  name: 'working-directory:current',
+  order: ctx.systemPrompt.getContextOrder('WORKING_DIRECTORY'),
+  required: true,
+  interpolate: false,
+  text: context => context.agent === undefined ? '' : this.contextText(context.agent.session),
+})
+```
+
+模型看到的是快照里的一行 `Current working directory: "<路径>".`。和我们的 `prompt.context()` 比，多了三样东西：
+
+- **`required: true`**：关掉动态上下文（`includeRuntimeContext: false`，或 5.4 会讲的 `suppressRuntimeContext()`）时，只关可选的，这一段照发。模型可以不知道现在几点，但不能不知道自己在哪个目录里动文件。
+- **`interpolate: false`**：目录名是用户的数据，里面要是恰好有 `{{`，不能被当成变量去展开——5.2 "别让数据变成代码"的又一次应用。
+- **发请求之前再读一遍。** `dsh/packages/core/agent-loop/src/agent.ts` 每次尝试发请求前调 `systemPrompt.refreshContext(assembly, …)`：只重新读注册的上下文（段落、工具、变量都不重算），把缺掉的必需项补回来，再用新快照替换 `agent/pre-step` 默认决定里那一条。README 的说法是 "registered context text is read again before admission"。dsh 没有单独写为什么要再读一遍；从代码看，一步开头组装完到真正发请求之间，还隔着 `agent/pre-step`、`agent/request`、选路由这些异步步骤，重试时更是隔了一次失败的请求，这期间工作目录可能被宿主或 SDK 改掉（`ctx.workingDirectory.set`）——这是我的推断，不是笔记原话。
+
+我们的代码还把工作目录放在 system prompt 里（5.2），5.5 会回到"该放哪"这个判断。
 
 ---
 

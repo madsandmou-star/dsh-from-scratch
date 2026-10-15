@@ -244,7 +244,7 @@ consumed = open + group[0].length             // 从引用的**后面**继续扫
 
 两个理由：
 
-**① 事实会变。** 阶段 13 会支持在会话里换工作目录；`{{cwd}}` 必须跟着变。注册时求值一次，prompt 就永远停在启动那一刻。
+**① 事实会变。** 阶段 13 会支持在会话里换工作目录；`{{cwd}}` 必须跟着变。注册时求值一次，prompt 就永远停在启动那一刻。（dsh 在这一点上走得更远：既然工作目录会变，它干脆不放进 system prompt 了，5.3 末尾讲为什么。）
 
 **② 测试里能固定住。** 想让 prompt 可复现，换掉取值函数就行：
 
@@ -292,7 +292,7 @@ DSH_SHOW_PROMPT=1 npm run dev     # 段落清单 + 拼出来的全文
 
 ## 对照 dsh
 
-`dsh/packages/core/system-prompt/src/index.ts` 里的 `interpolate()` 和我们这个几乎逐行一致，包括 `{{` 孤立时当字面、替换值不再扫描、三种错误分开报。三处不同：
+`dsh/packages/core/system-prompt/src/index.ts` 里的 `interpolate()` 和我们这个几乎逐行一致，包括 `{{` 孤立时当字面、替换值不再扫描、三种错误分开报。四处不同：
 
 | | 我们的 | dsh |
 |---|---|---|
@@ -315,6 +315,8 @@ if (!Object.hasOwn(variables, name)) { … }
 > 这条值得记：**用普通对象当查找表时，"有没有这个键"必须用 `Object.hasOwn`。** Python 里的 `dict` 没有这个坑，JS 有。
 
 第四处差别（插值和组装分开）是为 5.3 铺路的：dsh 的 `PromptAssembly` 里，**段落和动态上下文都还是没插值的原文**，两者共用同一份 `variables`，各自在需要的时候才 `renderPrompt` / `renderContextSections`。下一课就讲那个"动态上下文"为什么是另一套东西。
+
+还有一个开关我们没做：dsh 的段落和动态上下文都可以声明 `interpolate: false`，原样输出、不插值。用得上的地方是**文本里本来就可能出现 `{{` 的内容**——自动生成的工具文档、用户的目录名。和"替换值不再扫描"是同一条判断：**数据就是数据，不能有机会被当成模板。**
 
 ---
 
